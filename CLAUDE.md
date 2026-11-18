@@ -49,7 +49,7 @@ Kurz USD→CZK z ČNB (denní lístek) s datem; starší řádky zůstávají v 
 | 3. Doklady (foto/PDF, zmenšení, historie, podepsané URL) | hotovo 2026-11-16 (verze 6) |
 | 4. Upozornění (Actions cron, RPC s tokenem, SMTP, log, testovací e-mail) | hotovo 2026-11-17 (verze 7): testovací e-mail odeslán, záznam `test` / `ok` v `upozorneni_log` |
 | 5. AI vyčtení (Edge Function `opravneni-vycteni`) | hotovo 2026-11-18 (verze 8, funkce v4 – výběr druhu podle významu, ověřen na skutečném dokladu); fotka z mobilu se ověří po nasazení |
-| 6. Nasazení (veřejné repo + Pages, ikony, README) | **rozpracováno 2026-11-18** – viz sekce Etapa 6 |
+| 6. Nasazení (veřejné repo + Pages, ikony, README) | **nasazeno 2026-11-18** na https://vm73-prace.github.io/opravneni/ (smoke test, CORS, upozornění ověřené); zbývá test Vladana na PC a iPhonu s fotkou dokladu – viz sekce Etapa 6 |
 
 ## Etapa 1 – prototyp (2026-11-16, verze 3)
 
@@ -116,10 +116,16 @@ Kurz USD→CZK z ČNB (denní lístek) s datem; starší řádky zůstávají v 
 
 **Testy:** `npm test` = Node (calc + SQL vč. 003 + funkce se skutečným SDK proti napodobenému Anthropic API a Supabase) + Playwright (+ znovu s `?debug=1`); Python zvlášť. `npm run test:vycteni` samostatně.
 
-## Etapa 6 – nasazení (rozpracováno 2026-11-18)
+## Etapa 6 – nasazení (nasazeno 2026-11-18, čeká test na zařízeních)
 
 **Rozhodnutí (Vladan, 18. 11.):** repo `vm73-prace/opravneni` **veřejné** + GitHub Pages (větev `main`, kořen), adresa **https://vm73-prace.github.io/opravneni/**; zatím jen správce (Vladan), technici a propojení účtů později samostatně; vlastní doména později (společně pro pracovní appky). Interní podklady přesunuty do soukromého `vm73-prace/opravneni-interni`.
 
 - **Kontrola před zveřejněním (18. 11.):** prošlý pracovní strom i celá historie (e-maily, servery, jména, klíče, hashe, interní náklady, soubory mimo repo). V gitu nebyly tajné klíče ani skutečné e-maily; historie ale obsahovala interní údaje → **historie zkrácena na 1 commit** (záloha bundle v `opravneni-interni`), NAKLADY.md přesunut, CLAUDE.md očištěn, sonda SMTP nevypisuje vydavatele certifikátu, staré běhy Actions smazány.
-- **Zbývá:** zveřejnění repa a zapnutí Pages (ručně Vladan) → ověřit HTTP 200, `sw.js`, manifest s cestou `/opravneni/`, ikony, „verze N“; Supabase Auth Redirect URLs (jestli appka používá odkazy z e-mailu); CORS funkce z `https://vm73-prace.github.io` (OPTIONS 204); variable `OPRAVNENI_APP_URL`; Run workflow `nahled` po zveřejnění; Playwright smoke test proti ostré adrese; test na PC a iPhonu (Vyčíst AI s **fotkou** skutečného dokladu → cena do `opravneni-interni/NAKLADY.md`); README jako předávací balíček.
+- **Nasazeno 18. 11.:** Vladan zveřejnil repo a zapnul Pages (`main`, `/ (root)`). Ověřeno: všechny soubory HTTP 200, `sw.js` s cache `opravneni-v8`, manifest `start_url`/`scope` = `/opravneni/`, ikony `image/png`, patička „verze 8“.
+- **Smoke test** `node tests/smoke-ostry.mjs [adresa]` (není v `npm test`; iPhone 13 + PC 1280: HTTP 200, přihlašovací formulář, aktivní service worker, cache, manifest a ikony, „verze N · demo“, konzole bez chyb, žádný neúspěšný požadavek) – 28/28 ok.
+- **Supabase Auth:** appka používá jen `signInWithPassword` (žádný magic link ani reset hesla e-mailem) → Redirect URLs se neměnily. Site URL je společná pro celý sdílený projekt – neměnit kvůli této appce. Kdyby přibyl reset hesla, doplnit `https://vm73-prace.github.io/opravneni/` do Auth → URL Configuration → Redirect URLs a předat `redirectTo`.
+- **CORS funkce:** OPTIONS z `https://vm73-prace.github.io` 204 + ACAO, cizí původ 403, POST bez přihlášení 401.
+- **Actions:** variable `OPRAVNENI_APP_URL = https://vm73-prace.github.io/opravneni/` (přes `gh variable set`); po zveřejnění ruční běh `upozorneni.yml` režim `nahled` ok (data 200, k řešení 0) a `keepalive.yml` ok; veřejný log bez e-mailů a názvů serverů.
+- **README** = předávací balíček (co appka umí, adresa, správce a přidání technika, nasazení a verze, Supabase migrace, Edge Function, zálohy, secrets jen názvy, keepalive, testy).
+- **Zbývá (Vladan):** test na PC (přihlášení, přehled, Vyčíst AI) a na iPhonu (Safari → Sdílet → Přidat na plochu, přihlášení, Vyčíst AI s **fotkou** skutečného dokladu) → pak přečíst `opravneni.ai_log` (poslední řádek: zdroj, typ, velikost, tokeny, cena, ms) a cenu fotky doplnit do `../opravneni-interni/NAKLADY.md`. Dál: zkontrolovat lhůty a popisy druhů v katalogu; technici a propojení účtů samostatně později; vlastní doména později (pak původ do `POVOLENE_PUVODY` a znovu nasadit funkci).
 - Nový PC: naklonovat `opravneni` i `opravneni-interni`, `npm ci`, `npx playwright install chromium`, `python -m pip install --user -r requirements.txt` (tzdata), git identita jen pro repo (`git config user.name/user.email` podle posledního commitu), GitHub CLI (`gh auth login`).
