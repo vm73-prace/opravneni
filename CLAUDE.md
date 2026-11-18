@@ -49,7 +49,8 @@ Appka běží na https://vm73-prace.github.io/opravneni/ (verze 8, funkce `oprav
 3. **Kontrola veřejného repa `VM73/kalibrace`** na citlivé údaje (stejný postup jako u opravneni 18. 11.: pracovní strom + celá historie + logy Actions) – samostatný úkol.
 4. **AI – pole vydavatel:** model někdy vrací celou větu z dokladu → zpřesnit popis pole `vydavatel` v nástroji `navrh_opravneni` (`vycteni.js`) na „jen název firmy / subjektu, bez adresy a dalšího textu“, test, nasadit jako v5.
 5. **Katalog druhů:** Vladan zkontroluje lhůty a popisy druhů (AI je používá při výběru druhu).
-6. Později: vlastní doména (původ do `POVOLENE_PUVODY` + nasadit funkci), hlídat platnost certifikátu SMTP serveru (datum v `INTERNI.md`).
+6. **Flaky timeout w1280 supabase.spec při plném běhu na pomalém PC** (18. 11.: `page.goto` 20 s v testu „správce: přihlášení … odhlášení“ při `npm test`; samostatně 3× po sobě prošel, sada s `?debug=1` 222/222) – zatím neopravováno; pokud se bude opakovat, zvýšit timeout / omezit workers.
+7. Později: vlastní doména (původ do `POVOLENE_PUVODY` + nasadit funkci), hlídat platnost certifikátu SMTP serveru (datum v `INTERNI.md`).
 
 ## Stav po etapách
 
