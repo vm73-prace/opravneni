@@ -1,0 +1,27 @@
+# Udržení plánovaných workflow (keepalive). GitHub ve veřejném repu vypíná plánované workflow po 60 dnech
+# bez aktivity v repu. Tohle workflow 1. den v měsíci povolí přes API sebe i upozorneni.yml
+# (PUT /repos/{repo}/actions/workflows/{soubor}/enable) – jen GITHUB_TOKEN s actions: write, žádný osobní token,
+# žádné „prázdné“ commity. Na povoleném workflow volání nic nemění, jen zaznamená aktivitu. Viz README.
+name: Keepalive plánovaných běhů
+
+on:
+  schedule:
+    - cron: '41 4 1 * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Znovu povolit plánovaná workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for wf in upozorneni.yml keepalive.yml; do
+            gh api -X PUT "repos/${{ github.repository }}/actions/workflows/$wf/enable"
+            echo "povoleno: $wf"
+          done

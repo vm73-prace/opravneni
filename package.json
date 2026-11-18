@@ -1,0 +1,20 @@
+{
+  "name": "opravneni",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/calc.test.mjs tests/sql.test.mjs tests/vycteni.test.mjs && playwright test && node tests/s-debugem.mjs",
+    "test:calc": "node --test tests/calc.test.mjs",
+    "test:sql": "node --test tests/sql.test.mjs",
+    "test:vycteni": "node --test tests/vycteni.test.mjs",
+    "test:e2e": "playwright test",
+    "serve": "node tests/serve.mjs",
+    "test:debug": "node tests/s-debugem.mjs"
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "^1.5.0",
+    "@electric-sql/pglite": "^0.5.16",
+    "@playwright/test": "^1.65.1",
+    "@supabase/supabase-js": "^2.118.0"
+  }
+}

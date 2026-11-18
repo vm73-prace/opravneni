@@ -1,0 +1,63 @@
+# Denní kontrola oprávnění a e-mailová upozornění (scripts/upozorneni.py).
+# Cron 5:17 UTC = 6:17 v zimě / 7:17 v létě (pražský čas); nepravidelná minuta = menší fronta na GitHubu.
+# Keepalive: GitHub ve veřejném repu vypíná plánované workflow po 60 dnech bez aktivity v repu.
+# Proto .github/workflows/keepalive.yml 1. den v měsíci workflow znovu povolí přes API (jen GITHUB_TOKEN) – viz README.
+# Ručně (i z appky: Nastavení → Poslat testovací e-mail): Actions → Upozornění na oprávnění → Run workflow → režim.
+# Log nesmí obsahovat jména, e-maily ani čísla dokladů (skript je nevypisuje) – repo bude veřejné.
+name: Upozornění na oprávnění
+
+on:
+  schedule:
+    - cron: '17 5 * * *'
+  workflow_dispatch:
+    inputs:
+      rezim:
+        description: 'test = [TEST] e-mail jen správcům (příjemci souhrnu, log typ test) · nahled = jen vypsat, nic neposílat · ostry = jako denní běh · smtp-sonda = jen ověřit SMTP server bez přihlášení'
+        type: choice
+        options: [test, nahled, ostry, smtp-sonda]
+        default: test
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upozorneni
+  cancel-in-progress: false
+
+jobs:
+  upozorneni:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Závislosti
+        run: pip install -r requirements.txt
+      - name: Testy výpočtů a pravidel
+        run: python -m unittest discover -s tests -p "test_*.py"
+      - name: Kontrola a e-maily
+        env:
+          OPRAVNENI_SUPABASE_URL: ${{ secrets.OPRAVNENI_SUPABASE_URL }}
+          OPRAVNENI_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.OPRAVNENI_SUPABASE_PUBLISHABLE_KEY }}
+          OPRAVNENI_NOTIFY_TOKEN: ${{ secrets.OPRAVNENI_NOTIFY_TOKEN }}
+          OPRAVNENI_SMTP_HOST: ${{ secrets.OPRAVNENI_SMTP_HOST }}
+          OPRAVNENI_SMTP_PORT: ${{ secrets.OPRAVNENI_SMTP_PORT }}
+          OPRAVNENI_SMTP_USER: ${{ secrets.OPRAVNENI_SMTP_USER }}
+          OPRAVNENI_SMTP_FROM: ${{ secrets.OPRAVNENI_SMTP_FROM }}
+          OPRAVNENI_SMTP_PASSWORD: ${{ secrets.OPRAVNENI_SMTP_PASSWORD }}
+          OPRAVNENI_APP_URL: ${{ vars.OPRAVNENI_APP_URL }}
+          REZIM: ${{ inputs.rezim }}
+        run: |
+          set -o pipefail
+          ARG=""
+          if [ "$REZIM" = "test" ]; then ARG="--test-email"; elif [ "$REZIM" = "nahled" ]; then ARG="--dry-run"; elif [ "$REZIM" = "smtp-sonda" ]; then ARG="--sonda-smtp"; fi
+          python scripts/upozorneni.py $ARG 2>&1 | tee upozorneni.log
+      - name: Log při chybě
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: upozorneni-log
+          path: upozorneni.log
+          retention-days: 7

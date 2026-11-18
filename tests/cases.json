@@ -1,0 +1,31 @@
+{
+  "dnes": "2026-11-16",
+  "opravneni": [
+    { "nazev": "platné daleko", "zaznam": { "platnost_do": "2027-11-16" }, "ocekavano": { "stav": "platne", "zbyva": 365, "text": "za 365 dní" } },
+    { "nazev": "den za hranicí předstihu (91 > 90)", "zaznam": { "platnost_do": "2027-02-15" }, "ocekavano": { "stav": "platne", "zbyva": 91 } },
+    { "nazev": "přesně na hranici předstihu (90)", "zaznam": { "platnost_do": "2027-02-14" }, "ocekavano": { "stav": "predstih", "zbyva": 90, "predstih": 90 } },
+    { "nazev": "vyprší dnes", "zaznam": { "platnost_do": "2026-11-16" }, "ocekavano": { "stav": "predstih", "zbyva": 0, "text": "vyprší dnes" } },
+    { "nazev": "zítra", "zaznam": { "platnost_do": "2026-11-17" }, "ocekavano": { "stav": "predstih", "text": "za 1 den" } },
+    { "nazev": "za 3 dny", "zaznam": { "platnost_do": "2026-11-19" }, "ocekavano": { "text": "za 3 dny" } },
+    { "nazev": "včera propadlé", "zaznam": { "platnost_do": "2026-11-15" }, "ocekavano": { "stav": "propadle", "zbyva": -1, "text": "propadlé před 1 dnem" } },
+    { "nazev": "propadlé před 10 dny", "zaznam": { "platnost_do": "2026-11-06" }, "ocekavano": { "stav": "propadle", "text": "propadlé před 10 dny" } },
+    { "nazev": "přechod roku", "dnes": "2026-12-30", "zaznam": { "platnost_do": "2027-01-02" }, "ocekavano": { "zbyva": 3, "text": "za 3 dny" } },
+    { "nazev": "přestupný rok (únor 2028 má 29 dní)", "dnes": "2028-02-28", "zaznam": { "platnost_do": "2028-03-01" }, "ocekavano": { "zbyva": 2 } },
+    { "nazev": "doba neurčitá", "zaznam": { "neurcita": true }, "ocekavano": { "stav": "neurcita", "zbyva": null, "text": "doba neurčitá" } },
+    { "nazev": "předstih z druhu (120)", "druh": { "predstih_dni": 120 }, "zaznam": { "platnost_do": "2027-03-01" }, "ocekavano": { "stav": "predstih", "predstih": 120 } },
+    { "nazev": "předstih ze záznamu má přednost", "druh": { "predstih_dni": 120 }, "zaznam": { "platnost_do": "2027-03-01", "predstih_dni": 30 }, "ocekavano": { "stav": "platne", "predstih": 30 } },
+    { "nazev": "globální předstih z nastavení", "nastaveni": { "predstih_dni": 10 }, "zaznam": { "platnost_do": "2026-12-16" }, "ocekavano": { "stav": "platne", "predstih": 10 } },
+    { "nazev": "objednáno v předstihu", "zaznam": { "platnost_do": "2026-12-20", "objednano_na": "2026-12-05" }, "ocekavano": { "stav": "objednano", "po_terminu": false, "text": "objednáno · termín 5. 12." } },
+    { "nazev": "objednáno propadlé", "zaznam": { "platnost_do": "2026-11-01", "objednano_na": "2026-11-20" }, "ocekavano": { "stav": "objednano", "po_terminu": false } },
+    { "nazev": "objednáno, termín dnes ještě není po termínu", "zaznam": { "platnost_do": "2026-11-01", "objednano_na": "2026-11-16" }, "ocekavano": { "stav": "objednano", "po_terminu": false } },
+    { "nazev": "objednáno po termínu", "zaznam": { "platnost_do": "2026-11-01", "objednano_na": "2026-11-15" }, "ocekavano": { "stav": "objednano", "po_terminu": true, "text": "termín 15. 11. proběhl – nahraj nový doklad" } },
+    { "nazev": "objednáno na termín v příštím roce (s rokem)", "zaznam": { "platnost_do": "2026-12-20", "objednano_na": "2027-01-12" }, "ocekavano": { "stav": "objednano", "text": "objednáno · termín 12. 1. 2027" } },
+    { "nazev": "platné s termínem zůstane platné", "zaznam": { "platnost_do": "2028-01-01", "objednano_na": "2026-11-20" }, "ocekavano": { "stav": "platne" } }
+  ],
+  "mesice": [
+    ["2026-01-31", 1, "2026-02-28"],
+    ["2028-02-29", 12, "2029-02-28"],
+    ["2026-11-16", 60, "2031-11-16"],
+    ["2026-12-15", 1, "2027-01-15"]
+  ]
+}
