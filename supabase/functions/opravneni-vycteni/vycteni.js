@@ -118,7 +118,7 @@ export function sestavNastroj(katalog) {
         technik: { ...enumNull([...technici.keys()]), description: 'Držitel dokladu ze seznamu evidovaných techniků; null, když tam není nebo si nejsi jistý.' },
         druh: { ...enumNull([...druhy.keys()]), description: 'Druh oprávnění ze seznamu katalogu; null, když žádný neodpovídá.' },
         cislo: { ...nebNull({ type: 'string' }), description: 'Číslo / evidenční číslo dokladu, osvědčení nebo certifikátu.' },
-        vydavatel: { ...nebNull({ type: 'string' }), description: 'Kdo doklad vydal (firma, zkušební subjekt).' },
+        vydavatel: { ...nebNull({ type: 'string' }), description: 'Jen obchodní název firmy nebo instituce, která doklad vydala (např. ‚Systemair a.s.‘, ‚MANDÍK, a.s.‘), bez dalšího textu, adresy a vztahů k jiným firmám.' },
         vydano: { ...nebNull({ type: 'string', format: 'date' }), description: 'Datum vydání / zkoušky / školení, YYYY-MM-DD.' },
         platnost_do: { ...nebNull({ type: 'string', format: 'date' }), description: 'Konec platnosti YYYY-MM-DD – jen když je na dokladu uveden, nebo z něj přímo vyplývá (např. „platí 2 roky od vydání“).' },
         na_dobu_neurcitou: { type: 'boolean', description: 'true JEN když doklad výslovně uvádí platnost na dobu neurčitou / bez omezení. Když platnost na dokladu prostě není, je false a platnost_do null.' },
@@ -156,20 +156,40 @@ export function zkrat(s, max) {
   return (mezera > max / 2 ? kus.slice(0, mezera) : kus).replace(/[\s,;:.–-]+$/, '') + '…';
 }
 
+// Pojistka k poli vydavatel (v5): model někdy vrátí celou větu z dokladu. Nad MAX_VYDAVATEL znaků se text uřízne
+// za první právní formou firmy; když žádná není, zůstane (nejvýš 150 znaků). Zkrácení se hlásí do poznámky.
+export const MAX_VYDAVATEL = 80;
+export const POZN_VYDAVATEL = 'vydavatel zkrácen – zkontroluj';
+// Bez příznaku i: „se“, „ag“ apod. jako běžná slova se nesmí brát jako právní forma.
+const PRAVNI_FORMA = /[\s,](spol\. ?s ?r\. ?o\.|s\. ?r\. ?o\.|a\. ?s\.|k\. ?s\.|v\. ?o\. ?s\.|o\. ?p\. ?s\.|z\. ?s\.|s\. ?p\.|Sp\. z o\. ?o\.|GmbH|AG|SE|KG|Ltd\.?|Inc\.?|S\.A\.|B\.V\.|Kft\.)(?=$|[\s,;)])/u;
+export function upravVydavatele(s) {
+  const t = (text(s, 1000) || '').replace(/\s+/g, ' ');
+  if (!t || t.length <= MAX_VYDAVATEL) return { vydavatel: text(s, 150), zkracen: false };
+  const m = PRAVNI_FORMA.exec(t);
+  if (m && /\p{L}/u.test(t.slice(0, m.index))) {
+    const nazev = t.slice(0, m.index + m[0].length).trim();
+    if (nazev.length <= 150) return { vydavatel: nazev, zkracen: true };
+  }
+  return t.length <= 150 ? { vydavatel: t, zkracen: false } : { vydavatel: zkrat(t, 150), zkracen: true };
+}
+
 // Návrh pro appku: id místo popisků, ověřené formáty
 export function prevedNavrh(vstup, sestava, vyrobci) {
   const t = sestava.technici.get(vstup.technik), d = sestava.druhy.get(vstup.druh);
+  const vyd = upravVydavatele(vstup.vydavatel);
+  let poznamka = zkrat(vstup.poznamka, 500);
+  if (vyd.zkracen) poznamka = poznamka ? zkrat(poznamka, 500 - POZN_VYDAVATEL.length - 2).replace(/[\s.;,]+$/, '') + '; ' + POZN_VYDAVATEL : POZN_VYDAVATEL;
   return {
     technik_id: t ? t.id : null,
     druh_id: d ? d.id : null,
     jmeno_na_dokladu: text(vstup.jmeno_na_dokladu, 120),
     cislo: text(vstup.cislo, 100),
-    vydavatel: text(vstup.vydavatel, 150),
+    vydavatel: vyd.vydavatel,
     vydano: datum(vstup.vydano),
     platnost_do: vstup.na_dobu_neurcitou === true ? null : datum(vstup.platnost_do),
     na_dobu_neurcitou: vstup.na_dobu_neurcitou === true, // false + platnost_do null = platnost na dokladu nenalezena
     vyrobci: Array.isArray(vstup.vyrobci) ? [...new Set(vstup.vyrobci.filter((v) => vyrobci.includes(v)))] : [],
-    poznamka: zkrat(vstup.poznamka, 500)
+    poznamka
   };
 }
 

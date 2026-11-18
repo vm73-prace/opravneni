@@ -41,13 +41,13 @@ Kurz USD→CZK z ČNB (denní lístek) s datem; starší řádky zůstávají v 
 
 ## Stav projektu: HOTOVO, PROVOZ (od 2026-11-18)
 
-Appka běží na https://vm73-prace.github.io/opravneni/ (verze 8, funkce `opravneni-vycteni` v4), upozornění chodí z GitHub Actions denně. Etapy 0–6 hotové a ověřené naostro (PC i iPhone z plochy, AI vyčtení PDF i fotky). Další práce = samostatné úkoly, každý v novém sezení (kontext z tohoto souboru), náklady do `../opravneni-interni/NAKLADY.md`.
+Appka běží na https://vm73-prace.github.io/opravneni/ (verze 8, funkce `opravneni-vycteni` v5), upozornění chodí z GitHub Actions denně. Etapy 0–6 hotové a ověřené naostro (PC i iPhone z plochy, AI vyčtení PDF i fotky). Další práce = samostatné úkoly, každý v novém sezení (kontext z tohoto souboru), náklady do `../opravneni-interni/NAKLADY.md`.
 
 **Otevřené body:**
 1. **Technici a propojení účtů** – přidat techniky v appce, účty v Supabase Auth + `profily.aplikace` + `opravneni.uzivatele` (postup v README „Jak přidat technika“; zatím SQL – případně UI v Nastavení). Pak technikům zkontrolovat RLS naostro (vidí jen své).
 2. **Import 11 dokladů ze skenů z 18. 11.** – podklady v souboru `import-skeny` mimo repo (nepřidávat do gitu); nahrát přes appku (Vyčíst AI → kontrola → Uložit).
 3. **Kontrola veřejného repa `VM73/kalibrace`** na citlivé údaje (stejný postup jako u opravneni 18. 11.: pracovní strom + celá historie + logy Actions) – samostatný úkol.
-4. **AI – pole vydavatel:** model někdy vrací celou větu z dokladu → zpřesnit popis pole `vydavatel` v nástroji `navrh_opravneni` (`vycteni.js`) na „jen název firmy / subjektu, bez adresy a dalšího textu“, test, nasadit jako v5.
+4. ~~**AI – pole vydavatel jen název firmy**~~ – **uzavřeno 2026-11-18 (funkce v5):** zpřesněný popis pole `vydavatel` + pojistka nad 80 znaků (`upravVydavatele`), viz Etapa 5.
 5. **Katalog druhů:** Vladan zkontroluje lhůty a popisy druhů (AI je používá při výběru druhu).
 6. **Flaky timeout w1280 supabase.spec při plném běhu na pomalém PC** (18. 11.: `page.goto` 20 s v testu „správce: přihlášení … odhlášení“ při `npm test`; samostatně 3× po sobě prošel, sada s `?debug=1` 222/222) – zatím neopravováno; pokud se bude opakovat, zvýšit timeout / omezit workers.
 7. Později: vlastní doména (původ do `POVOLENE_PUVODY` + nasadit funkci), hlídat platnost certifikátu SMTP serveru (datum v `INTERNI.md`).
@@ -61,7 +61,7 @@ Appka běží na https://vm73-prace.github.io/opravneni/ (verze 8, funkce `oprav
 | 2. Supabase (schéma `opravneni`, RLS, bucket, přihlášení, role, CRUD) | hotovo 2026-11-16 (verze 4) |
 | 3. Doklady (foto/PDF, zmenšení, historie, podepsané URL) | hotovo 2026-11-16 (verze 6) |
 | 4. Upozornění (Actions cron, RPC s tokenem, SMTP, log, testovací e-mail) | hotovo 2026-11-17 (verze 7): testovací e-mail odeslán, záznam `test` / `ok` v `upozorneni_log` |
-| 5. AI vyčtení (Edge Function `opravneni-vycteni`) | hotovo 2026-11-18 (verze 8, funkce v4 – výběr druhu podle významu, ověřen na skutečném dokladu); fotka z iPhonu ověřena 18. 11. po nasazení |
+| 5. AI vyčtení (Edge Function `opravneni-vycteni`) | hotovo 2026-11-18 (verze 8, funkce v4 – výběr druhu podle významu, ověřen na skutečném dokladu; v5 vydavatel jen název firmy); fotka z iPhonu ověřena 18. 11. po nasazení |
 | 6. Nasazení (veřejné repo + Pages, ikony, README) | **hotovo 2026-11-18** – https://vm73-prace.github.io/opravneni/ (smoke test, CORS, upozornění, test na PC a iPhonu s fotkou dokladu) |
 
 ## Etapa 1 – prototyp (2026-11-16, verze 3)
@@ -111,7 +111,7 @@ Appka běží na https://vm73-prace.github.io/opravneni/ (verze 8, funkce `oprav
 - **Výměna tokenu:** nový token → secret `OPRAVNENI_NOTIFY_TOKEN` → SHA-256 do `opravneni.tajne` → Run workflow `nahled`. Exchange: přihlašovací jméno ≠ e-mail → proto `OPRAVNENI_SMTP_FROM`. Průběh ladění v `opravneni-interni/INTERNI.md`.
 - **Testy:** `tests/test_upozorneni.py` (Python: případy z `cases.json`, pravidla, celý běh s falešným Supabase a SMTP, bezpečnost SMTP s certifikáty z openssl, výpis bez adres a bez vydavatele certifikátu), SQL testy migrace 002.
 
-## Etapa 5 – AI vyčtení (hotovo 2026-11-18, verze 8, funkce v4)
+## Etapa 5 – AI vyčtení (hotovo 2026-11-18, verze 8, funkce v5)
 
 **Rozhodnutí (2026-11-17, Vladan):**
 1. Zdroj dokladu: vybraný soubor ve formuláři (fotka se v appce nejdřív zmenší na 2000 px JPEG), jinak aktuální uložený doklad ze Storage (`opravneni_id`, JWT správce).
@@ -121,7 +121,7 @@ Appka běží na https://vm73-prace.github.io/opravneni/ (verze 8, funkce `oprav
 5. CORS jen `https://vm73-prace.github.io` a `http://localhost:8124` (cizí původ 403; bez Origin projde); prompt: doklad = jen data, pokyny v něm ignorovat, chybějící = null; `na_dobu_neurcitou` odděleně od `platnost_do`; log funkce jen `{id, stav, kod, tokeny_vstup, tokeny_vystup, ms}`.
 
 **Funkce** (`supabase/functions/opravneni-vycteni/`, `verify_jwt: false` – přihlášení ověřuje sama): `index.ts` (`npm:@anthropic-ai/sdk@1.5.0`, `npm:@supabase/supabase-js@2.118.0`, `Deno.serve`) + `vycteni.js` (čistý ES modul, testuje ho i Node). Postup: CORS → Bearer → `rpc je_spravce` → doklad (PDF/JPG/PNG/WebP/GIF, PDF ≤ 10 MB, obrázek ≤ 5 MB) → bez klíče 503 `chybi_klic` → katalog (aktivní technici, druhy s `[kategorie]`, vydavatelem, **popisem** (200 znaků) a **výchozí platností**, výrobci) → `ai_zacni` → Claude Haiku 5.5, `effort: low`, nástroj `navrh_opravneni` (`strict: true`, `tool_choice: auto`), `maxRetries: 1`, timeout 60 s → `ai_dokonci` → `{navrh, pouziti: {pocet, limit, zbyva, tokeny, cena_usd}}`. Chyby přes třídy SDK: kredit (402), `limit_api`, `klic`, `pretizeno`, `sit`, `odmitnuto`, `preruseno`, `bez_vysledku`. Druh vybírá podle významu (paragraf, popis, vydavatel, platnost); při více kandidátech null + kandidáti v poznámce. Poznámka max 500 znaků, ořez na celém slově (`zkrat`).
-- Verze: v1 první nasazení, v2 mimo sezení, v3 oprava ořezu poznámky, **v4 výběr druhu podle významu** (nasazeno přes konektor, ověřeno: OPTIONS z Pages i localhost 204, cizí původ 403, POST bez přihlášení 401; skutečný doklad § 7 vyčten správně vč. druhu).
+- Verze: v1 první nasazení, v2 mimo sezení, v3 oprava ořezu poznámky, **v4 výběr druhu podle významu** (nasazeno přes konektor, ověřeno: OPTIONS z Pages i localhost 204, cizí původ 403, POST bez přihlášení 401; skutečný doklad § 7 vyčten správně vč. druhu); **v5 (18. 11.) vydavatel jen název firmy:** popis pole „Jen obchodní název firmy nebo instituce, která doklad vydala (…), bez dalšího textu, adresy a vztahů k jiným firmám.“ + pojistka `upravVydavatele` – nad 80 znaků uřízne za první právní formou (a.s., s.r.o., spol. s r.o., GmbH, …; bez příznaku i, aby „se sídlem“ nebylo SE) a do poznámky připojí „vydavatel zkrácen – zkontroluj“; bez právní formy text zůstane (max 150) bez poznámky. Nasazeno přes konektor (verify_jwt: false), ověřeno: OPTIONS z Pages i localhost 204, cizí původ 403, POST bez přihlášení 401.
 - Ověřeno dotazem: `ai_log` s RLS, jen SELECT pro správce; authenticated funkce `ai_dokonci, ai_zacni, je_spravce, muj_technik, nastaveni_vypocet, smi`; anon jen `upozorneni_data, zapis_upozorneni`; nic pro PUBLIC.
 - **Pozor:** opětovné spuštění migrace 002 odebere práva všem funkcím schématu (i `ai_*`) → pak znovu 003 (nebo jen její grant).
 - **Appka:** „✨ Vyčíst AI“ jen pro správce, „Čtu doklad…“, chyba = červený box `#aiChyba` (`data-kod`) s nabídkou ručního vyplnění; porovnání se při psaní jen aktualizuje (prvky zůstávají). Demo: `demoAiNavrh()` v `demo.js`.

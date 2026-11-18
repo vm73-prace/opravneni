@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
-import { zpracuj, sestavNastroj, prevedNavrh, cenaUsd, kodChybyApi, zkrat, MODEL, SYSTEM, POVOLENE_PUVODY } from '../supabase/functions/opravneni-vycteni/vycteni.js';
+import { zpracuj, sestavNastroj, prevedNavrh, cenaUsd, kodChybyApi, zkrat, upravVydavatele, MAX_VYDAVATEL, POZN_VYDAVATEL, MODEL, SYSTEM, POVOLENE_PUVODY } from '../supabase/functions/opravneni-vycteni/vycteni.js';
 
 const SPRAVCE = 'token-spravce', TECHNIK = 'token-technika', PUVOD = 'https://vm73-prace.github.io';
 const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]);
@@ -291,6 +291,50 @@ test('seznam druhů obsahuje popis a výchozí lhůtu; SYSTEM žádá výběr po
   assert.deepEqual(poz.tools[0].input_schema.properties.druh.anyOf[0].enum, ['Mandík – požární klapky [PPK]', 'Švadlenka – PBZ [PPK]', 'Bez popisu [PPK]'], 'enum beze změny (jen název + kategorie)');
   assert.match(poz.system, /Druh vyber podle významu \(paragraf, popis, vydavatel, délka platnosti\)/);
   assert.match(poz.system, /v poznámce uveď kandidáty/);
+});
+
+test('vydavatel (v5): popis pole „Jen obchodní název“, dlouhá věta oříznutá za právní formou + poznámka, krátký beze změny', async () => {
+  // dlouhá věta se Systemair → jen název firmy, do poznámky upozornění
+  const veta = 'Systemair Production a.s. společně s výhradním dodavatelem pro Českou republiku, Hlavní 1, 100 00 Praha 10';
+  assert.ok(veta.length > MAX_VYDAVATEL);
+  stav.api.vstup = { ...VSTUP, vydavatel: veta };
+  let r = await zavolej({ soubor: JPEG });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.navrh.vydavatel, 'Systemair Production a.s.');
+  assert.equal(r.body.navrh.poznamka, POZN_VYDAVATEL);
+  assert.equal(POZN_VYDAVATEL, 'vydavatel zkrácen – zkontroluj');
+  const popis = stav.apiPozadavky[0].tools[0].input_schema.properties.vydavatel;
+  assert.match(popis.description, /Jen obchodní název/);
+  assert.match(popis.description, /bez dalšího textu, adresy a vztahů k jiným firmám/);
+  assert.deepEqual(popis.anyOf, [{ type: 'string' }, { type: 'null' }], 'typ pole beze změny');
+
+  // existující poznámka zůstane, upozornění se připojí (celkem do 500 znaků)
+  stav = novyStav(); stav.api.vstup = { ...VSTUP, vydavatel: veta, poznamka: 'Datum vydání je rozmazané.' };
+  r = await zavolej({ soubor: JPEG });
+  assert.equal(r.body.navrh.poznamka, 'Datum vydání je rozmazané; ' + POZN_VYDAVATEL);
+  stav = novyStav(); stav.api.vstup = { ...VSTUP, vydavatel: veta, poznamka: 'slovo '.repeat(200) };
+  r = await zavolej({ soubor: JPEG });
+  assert.ok(r.body.navrh.poznamka.length <= 500 && r.body.navrh.poznamka.endsWith('…; ' + POZN_VYDAVATEL));
+
+  // krátký vydavatel beze změny, bez poznámky
+  for (const kratky of ['MANDÍK, a.s.', 'Systemair a.s.', 'Ing. Švadlenka']) {
+    stav = novyStav(); stav.api.vstup = { ...VSTUP, vydavatel: kratky };
+    r = await zavolej({ soubor: JPEG });
+    assert.deepEqual([r.body.navrh.vydavatel, r.body.navrh.poznamka], [kratky, null], kratky);
+  }
+
+  // další právní formy; „se“ jako běžné slovo není SE; bez právní formy zůstane (do 150 znaků) bez poznámky
+  const dodatek = ' ve spolupráci s autorizovaným školicím střediskem pro Českou a Slovenskou republiku';
+  assert.deepEqual(upravVydavatele('ATREA s.r.o.' + dodatek), { vydavatel: 'ATREA s.r.o.', zkracen: true });
+  assert.deepEqual(upravVydavatele('Firma Příklad spol. s r. o.' + dodatek), { vydavatel: 'Firma Příklad spol. s r. o.', zkracen: true });
+  assert.deepEqual(upravVydavatele('Beispiel Lüftung GmbH, Musterstraße 5, 12345 Musterstadt, Deutschland – Schulungszentrum'), { vydavatel: 'Beispiel Lüftung GmbH', zkracen: true });
+  const bezFormy = 'Zkušební komise se sídlem v Praze ve spolupráci s autorizovaným školicím střediskem pro ČR';
+  assert.ok(bezFormy.length > MAX_VYDAVATEL && bezFormy.length <= 150);
+  assert.deepEqual(upravVydavatele(bezFormy), { vydavatel: bezFormy, zkracen: false });
+  const preDlouhy = upravVydavatele('slovo '.repeat(40));
+  assert.ok(preDlouhy.zkracen && preDlouhy.vydavatel.length <= 150 && preDlouhy.vydavatel.endsWith('…'));
+  assert.deepEqual(upravVydavatele(null), { vydavatel: null, zkracen: false });
+  assert.deepEqual(upravVydavatele('   '), { vydavatel: null, zkracen: false });
 });
 
 test('cena a pomocné funkce', () => {
