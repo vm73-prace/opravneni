@@ -246,15 +246,13 @@ def rpc(funkce, telo):
         telo_chyby = e.read().decode(errors='replace')[:500]
         log('Supabase CHYBA', funkce, e.code, telo_chyby)
         if '28000' in telo_chyby:
-            log('neplatný token – SHA-256 z řádku „token:“ výše musí sedět s opravneni.tajne.token_hash')
+            log('token nesouhlasí s hashem v DB – vygeneruj token znovu, přepiš secret OPRAVNENI_NOTIFY_TOKEN a pošli nový hash ke kontrole')
         raise SystemExit(1)
 
 
 def popis_tokenu(t):
-    """Diagnostika bez prozrazení tokenu: délka a okraje jeho SHA-256 (hash není tajný)."""
-    import hashlib
-    h = hashlib.sha256(t.strip().encode()).hexdigest()
-    return f'délka {len(t.strip())} znaků (před ořezem {len(t)}), SHA-256 {h[:4]}…{h[-4:]}'
+    """Diagnostika bez prozrazení tokenu: jen délka (log Actions je veřejný – žádný hash ani jeho části)."""
+    return f'délka {len(t.strip())} znaků (před ořezem {len(t)})'
 
 
 def popis_os_chyby(e):
@@ -270,21 +268,15 @@ def popis_os_chyby(e):
     return ''
 
 
-def _sha_okraje(text):
-    import hashlib
-    h = hashlib.sha256(text.encode()).hexdigest()
-    return f'{h[:4]}…{h[-4:]}'
-
-
 def popis_smtp_nastaveni():
-    """Diagnostika secrets SMTP bez prozrazení hodnot: délky, tvar, okraje SHA-256 názvu serveru, port."""
+    """Diagnostika secrets SMTP bez prozrazení hodnot (log Actions je veřejný): délky, tvar, port – žádný hash."""
     host = os.environ.get('OPRAVNENI_SMTP_HOST', '')
     user = os.environ.get('OPRAVNENI_SMTP_USER', '')
     od = os.environ.get('OPRAVNENI_SMTP_FROM', '')
     h = host.strip()
     ano = lambda b: 'ano' if b else 'ne'
     return (f"HOST délka {len(h)} (před ořezem {len(host)}), teček {h.count('.')}, '@' {ano('@' in h)}, "
-            f"mezera {ano(any(c.isspace() for c in h))}, znaků mimo ASCII {sum(1 for c in h if ord(c) > 127)}, SHA-256 {_sha_okraje(h)} | "
+            f"mezera {ano(any(c.isspace() for c in h))}, znaků mimo ASCII {sum(1 for c in h if ord(c) > 127)} | "
             f"PORT {os.environ.get('OPRAVNENI_SMTP_PORT', '').strip() or '(prázdný)'} | "
             f"USER délka {len(user.strip())}, '@' {ano('@' in user)} | "
             f"FROM {'(nevyplněný → USER)' if not od.strip() else f'délka {len(od.strip())}'}, odesílatel má '@' {ano('@' in odesilatel())}")

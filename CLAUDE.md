@@ -39,6 +39,18 @@ Na konci **každé etapy** doplnit do **`../opravneni-interni/NAKLADY.md`** (sou
 - **AI API** – počet volání a Kč.
 Kurz USD→CZK z ČNB (denní lístek) s datem; starší řádky zůstávají v původním kurzu.
 
+## Stav projektu: HOTOVO, PROVOZ (od 2026-11-18)
+
+Appka běží na https://vm73-prace.github.io/opravneni/ (verze 8, funkce `opravneni-vycteni` v4), upozornění chodí z GitHub Actions denně. Etapy 0–6 hotové a ověřené naostro (PC i iPhone z plochy, AI vyčtení PDF i fotky). Další práce = samostatné úkoly, každý v novém sezení (kontext z tohoto souboru), náklady do `../opravneni-interni/NAKLADY.md`.
+
+**Otevřené body:**
+1. **Technici a propojení účtů** – přidat techniky v appce, účty v Supabase Auth + `profily.aplikace` + `opravneni.uzivatele` (postup v README „Jak přidat technika“; zatím SQL – případně UI v Nastavení). Pak technikům zkontrolovat RLS naostro (vidí jen své).
+2. **Import 11 dokladů ze skenů z 18. 11.** – podklady v souboru `import-skeny` mimo repo (nepřidávat do gitu); nahrát přes appku (Vyčíst AI → kontrola → Uložit).
+3. **Kontrola veřejného repa `VM73/kalibrace`** na citlivé údaje (stejný postup jako u opravneni 18. 11.: pracovní strom + celá historie + logy Actions) – samostatný úkol.
+4. **AI – pole vydavatel:** model někdy vrací celou větu z dokladu → zpřesnit popis pole `vydavatel` v nástroji `navrh_opravneni` (`vycteni.js`) na „jen název firmy / subjektu, bez adresy a dalšího textu“, test, nasadit jako v5.
+5. **Katalog druhů:** Vladan zkontroluje lhůty a popisy druhů (AI je používá při výběru druhu).
+6. Později: vlastní doména (původ do `POVOLENE_PUVODY` + nasadit funkci), hlídat platnost certifikátu SMTP serveru (datum v `INTERNI.md`).
+
 ## Stav po etapách
 
 | Etapa | Stav |
@@ -48,8 +60,8 @@ Kurz USD→CZK z ČNB (denní lístek) s datem; starší řádky zůstávají v 
 | 2. Supabase (schéma `opravneni`, RLS, bucket, přihlášení, role, CRUD) | hotovo 2026-11-16 (verze 4) |
 | 3. Doklady (foto/PDF, zmenšení, historie, podepsané URL) | hotovo 2026-11-16 (verze 6) |
 | 4. Upozornění (Actions cron, RPC s tokenem, SMTP, log, testovací e-mail) | hotovo 2026-11-17 (verze 7): testovací e-mail odeslán, záznam `test` / `ok` v `upozorneni_log` |
-| 5. AI vyčtení (Edge Function `opravneni-vycteni`) | hotovo 2026-11-18 (verze 8, funkce v4 – výběr druhu podle významu, ověřen na skutečném dokladu); fotka z mobilu se ověří po nasazení |
-| 6. Nasazení (veřejné repo + Pages, ikony, README) | **nasazeno 2026-11-18** na https://vm73-prace.github.io/opravneni/ (smoke test, CORS, upozornění ověřené); zbývá test Vladana na PC a iPhonu s fotkou dokladu – viz sekce Etapa 6 |
+| 5. AI vyčtení (Edge Function `opravneni-vycteni`) | hotovo 2026-11-18 (verze 8, funkce v4 – výběr druhu podle významu, ověřen na skutečném dokladu); fotka z iPhonu ověřena 18. 11. po nasazení |
+| 6. Nasazení (veřejné repo + Pages, ikony, README) | **hotovo 2026-11-18** – https://vm73-prace.github.io/opravneni/ (smoke test, CORS, upozornění, test na PC a iPhonu s fotkou dokladu) |
 
 ## Etapa 1 – prototyp (2026-11-16, verze 3)
 
@@ -92,7 +104,7 @@ Kurz USD→CZK z ČNB (denní lístek) s datem; starší řádky zůstávají v 
 - **Testovací e-mail:** tlačítko v Nastavení je odkaz na `https://github.com/vm73-prace/opravneni/actions/workflows/upozorneni.yml` (Run workflow → režim test) + výsledek posledního testu z `upozorneni_log` (Obnovit výsledek). Žádná Edge Function ani GitHub token v appce. **[TEST] e-mail jen správcům, nikdy technikům.**
 - **Migrace `sql/002_upozorneni.sql`** (+ rollback): `grant usage on schema opravneni to anon`; `over_token(token)` (SHA-256 vs `tajne.token_hash`, null hash = vše odmítne, chyba 28000); `upozorneni_data(token)` (bez poznámek a dokladů, log 400 dní); `zapis_upozorneni(token, zaznamy jsonb)` (max 200 řádků). Obě jen pro `anon`. Pojistka: anon jen tyto 2 funkce, žádná tabulka. Spuštěno přes konektor (`opravneni_002_upozorneni`) a ověřeno.
 - **Skript `scripts/upozorneni.py`** (stdlib + `tzdata`; vždy STARTTLS s ověřením certifikátu i jména, port 465 = SSL): k řešení = v předstihu, propadlé, objednané po termínu; typ `vstup` = poprvé od `updated_at` záznamu; `tydenni` = pondělí; příjemce max 1 e-mail denně; správci (`nastaveni.prijemci`) souhrn, technik s e-mailem jen svoje; chyba u jednoho příjemce → log `chyba`, ostatní se pošlou, exit 1. Režimy `--dry-run`, `--nahled f`, `--test-email`, `--sonda-smtp`.
-- **Výpis do logu Actions je veřejný:** bez jmen a e-mailů (jen „spravce #1“), u tokenu jen délka a okraje SHA-256, u SMTP jen délky a tvar hodnot (`SMTP nastavení:`), při chybě SMTP jen fáze, typ a kód (celé hlášení serveru jen do `upozorneni_log`), sonda jen verze TLS, „certifikát ověřen“ a metody AUTH (bez vydavatele a platnosti certifikátu). Hodnoty secrets GitHub v logu maskuje.
+- **Výpis do logu Actions je veřejný:** bez jmen a e-mailů (jen „spravce #1“), u tokenu jen délka (žádný hash ani jeho části; při chybě 28000 nápověda vygenerovat token znovu), u SMTP jen délky a tvar hodnot (`SMTP nastavení:`), při chybě SMTP jen fáze, typ a kód (celé hlášení serveru jen do `upozorneni_log`), sonda jen verze TLS, „certifikát ověřen“ a metody AUTH (bez vydavatele a platnosti certifikátu). Hodnoty secrets GitHub v logu maskuje.
 - **Workflow `.github/workflows/upozorneni.yml`:** cron `17 5 * * *`, Run workflow s volbou `rezim` (test / nahled / ostry / smtp-sonda), testy před během, log jako artefakt při chybě (7 dní). Secrets (jen názvy): `OPRAVNENI_SUPABASE_URL`, `OPRAVNENI_SUPABASE_PUBLISHABLE_KEY`, `OPRAVNENI_NOTIFY_TOKEN`, `OPRAVNENI_SMTP_HOST`, `OPRAVNENI_SMTP_PORT`, `OPRAVNENI_SMTP_USER`, `OPRAVNENI_SMTP_FROM`, `OPRAVNENI_SMTP_PASSWORD`; variable `OPRAVNENI_APP_URL`.
 - **Keepalive** `.github/workflows/keepalive.yml` (cron `41 4 1 * *`, `gh api -X PUT …/enable` s `GITHUB_TOKEN`, `permissions: actions: write`) proti vypnutí plánovaných workflow po 60 dnech neaktivity ve veřejném repu; ověřeno ručním během.
 - **Výměna tokenu:** nový token → secret `OPRAVNENI_NOTIFY_TOKEN` → SHA-256 do `opravneni.tajne` → Run workflow `nahled`. Exchange: přihlašovací jméno ≠ e-mail → proto `OPRAVNENI_SMTP_FROM`. Průběh ladění v `opravneni-interni/INTERNI.md`.
@@ -116,7 +128,7 @@ Kurz USD→CZK z ČNB (denní lístek) s datem; starší řádky zůstávají v 
 
 **Testy:** `npm test` = Node (calc + SQL vč. 003 + funkce se skutečným SDK proti napodobenému Anthropic API a Supabase) + Playwright (+ znovu s `?debug=1`); Python zvlášť. `npm run test:vycteni` samostatně.
 
-## Etapa 6 – nasazení (nasazeno 2026-11-18, čeká test na zařízeních)
+## Etapa 6 – nasazení (hotovo 2026-11-18)
 
 **Rozhodnutí (Vladan, 18. 11.):** repo `vm73-prace/opravneni` **veřejné** + GitHub Pages (větev `main`, kořen), adresa **https://vm73-prace.github.io/opravneni/**; zatím jen správce (Vladan), technici a propojení účtů později samostatně; vlastní doména později (společně pro pracovní appky). Interní podklady přesunuty do soukromého `vm73-prace/opravneni-interni`.
 
@@ -127,5 +139,5 @@ Kurz USD→CZK z ČNB (denní lístek) s datem; starší řádky zůstávají v 
 - **CORS funkce:** OPTIONS z `https://vm73-prace.github.io` 204 + ACAO, cizí původ 403, POST bez přihlášení 401.
 - **Actions:** variable `OPRAVNENI_APP_URL = https://vm73-prace.github.io/opravneni/` (přes `gh variable set`); po zveřejnění ruční běh `upozorneni.yml` režim `nahled` ok (data 200, k řešení 0) a `keepalive.yml` ok; veřejný log bez e-mailů a názvů serverů.
 - **README** = předávací balíček (co appka umí, adresa, správce a přidání technika, nasazení a verze, Supabase migrace, Edge Function, zálohy, secrets jen názvy, keepalive, testy).
-- **Zbývá (Vladan):** test na PC (přihlášení, přehled, Vyčíst AI) a na iPhonu (Safari → Sdílet → Přidat na plochu, přihlášení, Vyčíst AI s **fotkou** skutečného dokladu) → pak přečíst `opravneni.ai_log` (poslední řádek: zdroj, typ, velikost, tokeny, cena, ms) a cenu fotky doplnit do `../opravneni-interni/NAKLADY.md`. Dál: zkontrolovat lhůty a popisy druhů v katalogu; technici a propojení účtů samostatně později; vlastní doména později (pak původ do `POVOLENE_PUVODY` a znovu nasadit funkci).
+- **Test na zařízeních (Vladan, 18. 11.):** iPhone – Safari → Přidat na plochu, přihlášení, Vyčíst AI z **fotky** skutečného oprávnění výrobce: druh, číslo, vydáno, platnost, výrobce i jméno správně, technik null (není v evidenci – správně). `ai_log` #4: JPEG zmenšený v appce, stav ok, ~4,9 s; cena v `../opravneni-interni/NAKLADY.md`. Postřeh: vydavatel občas jako celá věta z dokladu → otevřený bod 4.
 - Nový PC: naklonovat `opravneni` i `opravneni-interni`, `npm ci`, `npx playwright install chromium`, `python -m pip install --user -r requirements.txt` (tzdata), git identita jen pro repo (`git config user.name/user.email` podle posledního commitu), GitHub CLI (`gh auth login`).

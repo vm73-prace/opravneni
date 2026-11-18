@@ -310,9 +310,10 @@ class Beh(unittest.TestCase):
         self.assertIn('SMTP CHYBA spravce #1 fáze DNS gaierror', v)
         self.assertIn('DNS errno -3', v)
         h = hashlib.sha256(b'smtp.firma.cz').hexdigest()
-        self.assertIn(f"SMTP nastavení: HOST délka 13 (před ořezem 13), teček 2, '@' ne, mezera ne, znaků mimo ASCII 0, SHA-256 {h[:4]}…{h[-4:]} | PORT 587 | USER délka 19, '@' ano", v)
-        for citlive in ('smtp.firma.cz', 'upozorneni@', 'heslo', h):
+        self.assertIn("SMTP nastavení: HOST délka 13 (před ořezem 13), teček 2, '@' ne, mezera ne, znaků mimo ASCII 0 | PORT 587 | USER délka 19, '@' ano", v)
+        for citlive in ('smtp.firma.cz', 'upozorneni@', 'heslo', h, h[:4], h[-4:], 'SHA-256'):
             self.assertNotIn(citlive, v)
+        self.assertNotRegex(v, r'[0-9a-f]{4}…[0-9a-f]{4}')  # žádné okraje hashů (log Actions je veřejný)
         self.assertTrue(all(z['chyba'].startswith('fáze DNS – gaierror') for z in self.zapsano))
 
     def test_faze_auth(self):
@@ -357,11 +358,22 @@ class Beh(unittest.TestCase):
         self.assertNotIn('upozor', out.getvalue().replace('upozorneni', ''))  # hodnota USER se nevypisuje
 
     def test_spatny_token(self):
+        import contextlib
+        import hashlib
+        import io
         import os
         os.environ['OPRAVNENI_NOTIFY_TOKEN'] = 'spatny'
-        with self.assertRaises(SystemExit):
+        out = io.StringIO()
+        with self.assertRaises(SystemExit), contextlib.redirect_stdout(out):
             U.main([])
         self.assertEqual(self.odeslane, [])
+        v = out.getvalue()
+        self.assertIn('token: délka 6 znaků (před ořezem 6)', v)
+        self.assertIn('token nesouhlasí s hashem v DB – vygeneruj token znovu, přepiš secret OPRAVNENI_NOTIFY_TOKEN a pošli nový hash ke kontrole', v)
+        h = hashlib.sha256(b'spatny').hexdigest()
+        for cast in ('spatny', h[:4], h[-4:], 'SHA-256'):
+            self.assertNotIn(cast, v)
+        self.assertNotRegex(v, r'[0-9a-f]{4}…[0-9a-f]{4}')
 
     def test_vypis_bez_emailu_a_jmen(self):
         import contextlib
@@ -375,8 +387,10 @@ class Beh(unittest.TestCase):
         self.assertIn('spravce #2', vypis)
         import hashlib
         h = hashlib.sha256(b'tajny-token').hexdigest()
-        self.assertIn(f'token: délka 11 znaků (před ořezem 11), SHA-256 {h[:4]}…{h[-4:]}', vypis)
-        self.assertNotIn(h, vypis)  # celý hash ne, jen okraje
+        self.assertIn('token: délka 11 znaků (před ořezem 11)', vypis)
+        for cast in (h, h[:4], h[-4:], 'SHA-256'):
+            self.assertNotIn(cast, vypis)  # ani hash, ani jeho okraje
+        self.assertNotRegex(vypis, r'[0-9a-f]{4}…[0-9a-f]{4}')
 
 
 class TvarHostu(unittest.TestCase):
