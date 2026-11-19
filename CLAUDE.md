@@ -44,7 +44,9 @@ Kurz USD→CZK z ČNB (denní lístek) s datem; starší řádky zůstávají v 
 Appka běží na https://vm73-prace.github.io/opravneni/ (verze 8, funkce `opravneni-vycteni` v5), upozornění chodí z GitHub Actions denně. Etapy 0–6 hotové a ověřené naostro (PC i iPhone z plochy, AI vyčtení PDF i fotky). Další práce = samostatné úkoly, každý v novém sezení (kontext z tohoto souboru), náklady do `../opravneni-interni/NAKLADY.md`.
 
 **Otevřené body:**
-1. **Technici a propojení účtů** – přidat techniky v appce, účty v Supabase Auth + `profily.aplikace` + `opravneni.uzivatele` (postup v README „Jak přidat technika“; zatím SQL – případně UI v Nastavení). Pak technikům zkontrolovat RLS naostro (vidí jen své).
+1. **Technici – rozhodnutí 19. 11. (Vladan): bez přihlašovacích účtů, přehled má jen správce.** Technici se do appky nepřihlašují; vybraní technici dostávají jen e-mailová upozornění na svá oprávnění (`technici.email`, skript `upozorneni.py` to už umí). Účty v Auth / `opravneni.uzivatele` pro techniky nezakládat; RLS pro roli technik zůstává (neškodí, připraveno pro případ změny). ZADANI §2 („technik čte svou sekci“) tím pro provoz neplatí.
+   - Pozor: technik s vyplněným e-mailem dostane při nejbližším denním běhu (6:17) e-mail „vstup“ ke všem svým položkám k řešení (např. Mandík 23. 11.).
+   - Známá drobnost: smazání technika s propojeným účtem v `uzivatele` selže (`uzivatele_check` vs. `ON DELETE SET NULL`) – dnes se netýká (žádný technik nemá účet).
 2. **Import 11 dokladů ze skenů z 18. 11.** – podklady v souboru `import-skeny` mimo repo (nepřidávat do gitu); nahrát přes appku (Vyčíst AI → kontrola → Uložit).
 3. **Kontrola veřejného repa `VM73/kalibrace`** na citlivé údaje (stejný postup jako u opravneni 18. 11.: pracovní strom + celá historie + logy Actions) – samostatný úkol.
 4. ~~**AI – pole vydavatel jen název firmy**~~ – **uzavřeno 2026-11-18 (funkce v5):** zpřesněný popis pole `vydavatel` + pojistka nad 80 znaků (`upravVydavatele`), viz Etapa 5.
