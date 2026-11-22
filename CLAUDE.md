@@ -53,6 +53,7 @@ Appka běží na https://vm73-prace.github.io/opravneni/ (verze 10, funkce `opra
 5. **Katalog druhů:** Vladan zkontroluje lhůty a popisy druhů (AI je používá při výběru druhu).
 6. **Flaky timeout w1280 supabase.spec při plném běhu na pomalém PC** (18. 11.: `page.goto` 20 s v testu „správce: přihlášení … odhlášení“ při `npm test`; samostatně 3× po sobě prošel, sada s `?debug=1` 222/222) – zatím neopravováno; pokud se bude opakovat, zvýšit timeout / omezit workers.
 7. Později: vlastní doména (původ do `POVOLENE_PUVODY` + nasadit funkci), hlídat platnost certifikátu SMTP serveru (datum v `INTERNI.md`).
+8. **Další krok – při nejbližší úpravě appky (rozhodnutí Vladana 22. 11.):** v tomto souboru nahradit název druhé pracovní appky (dnes v úvodu u „Vzor:“, v rozhodnutí 2 o SMTP, v otevřeném bodu 3 a v etapě 1 u portu testovacího serveru) neutrálním textem „druhá pracovní appka ve stejné organizaci“; cestu ke vzoru přesunout do `../opravneni-interni/INTERNI.md`. Historii gitu nepřepisovat. Před commitem zkontrolovat `git grep` na název v celém pracovním stromu.
 
 ## Stav po etapách
 
