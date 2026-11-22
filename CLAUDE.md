@@ -77,6 +77,7 @@ Appka běží na https://vm73-prace.github.io/opravneni/ (verze 9, funkce `oprav
 - **Důsledek:** `signOut` ruší všechna sezení účtu na serveru, takže po odhlášení na jednom zařízení se druhé odhlásí hned při obnovení stránky (dřív až při obnově tokenu).
 - **Známá mez:** blokované mazání i zápis a zároveň server při odhlášení nedostupný → po obnovení stránky se session vrátí (není kam odhlášení zapsat).
 - **Mock:** anon 401 / 42501 se zněním jako produkce (`permission denied for function …` / `table …`; schéma má od migrace 002 pro anon USAGE), odhlášení ruší sezení (`/user` pak 403 `session_not_found`, REST JWT dál bere).
+- **Nasazeno a ověřeno 22. 11.:** Pages = commit, `opravneni-v9`, smoke test 28/28, odhlášení na nasazeném kódu s napodobeným Supabase (bez blokování, blokovaný zápis, mazání, obojí). Testy: Node 62, Playwright 288 + 288 s `?debug=1`, Python 36. **Zbývá:** ruční zkouška skutečným účtem na PC s blokujícím antivirem (přihlásit → odhlásit → obnovit stránku).
 
 ## Etapa 1 – prototyp (2026-11-16, verze 3)
 
