@@ -16,16 +16,17 @@ const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
 const ucetPodleEmailu = (e) => Object.values(UCTY).find((u) => u.email === e);
 const ucetPodleId = (id) => Object.values(UCTY).find((u) => u.id === id);
 
-function session(u) {
+function session(u, sid = randomUUID()) {
   const now = Math.floor(Date.now() / 1000);
   const user = { id: u.id, email: u.email, aud: 'authenticated', role: 'authenticated', app_metadata: {}, user_metadata: {}, created_at: new Date().toISOString() };
-  const token = b64({ alg: 'HS256', typ: 'JWT' }) + '.' + b64({ sub: u.id, email: u.email, role: 'authenticated', aud: 'authenticated', exp: now + 3600, iat: now, session_id: 's-' + u.id }) + '.podpis';
+  const token = b64({ alg: 'HS256', typ: 'JWT' }) + '.' + b64({ sub: u.id, email: u.email, role: 'authenticated', aud: 'authenticated', exp: now + 3600, iat: now, session_id: sid }) + '.podpis';
   return { access_token: token, token_type: 'bearer', expires_in: 3600, expires_at: now + 3600, refresh_token: 'obnova-' + u.id, user };
 }
-const kdoJe = (h) => {
+const obsahJwt = (h) => {
   const t = (h.authorization || '').replace('Bearer ', '').split('.')[1];
-  try { return ucetPodleId(JSON.parse(Buffer.from(t, 'base64url').toString()).sub) || null; } catch { return null; }
+  try { return JSON.parse(Buffer.from(t, 'base64url').toString()); } catch { return {}; }
 };
+const kdoJe = (h) => ucetPodleId(obsahJwt(h).sub) || null;
 
 // Výchozí obsah jako po migraci 001 (zkrácený katalog) + volitelná data testu
 export function vychoziStore() {
@@ -40,7 +41,8 @@ export function vychoziStore() {
     ],
     technici: [], opravneni: [], doklady: [],
     soubory: {}, // Storage bucket opravneni-doklady: cesta -> { body: Buffer, typ }
-    selhani: {}, // { doklady: true } = zápis řádku dokladu selže (test úklidu)
+    selhani: {}, // { doklady: true } = zápis řádku dokladu selže (test úklidu); { logout / user: true } = výpadek Auth
+    odhlaseni: new Set(), // účty odhlášené na serveru (signOut ruší všechna sezení účtu)
     nastaveni: [{ id: 1, predstih_dni: 90, prijemci: '', vyrobci: 'Mandík, Systemair, Elektrodesign' }],
     uzivatele: [{ user_id: UCTY.spravce.id, role: 'spravce', technik_id: null }],
     upozorneni_log: [], // zapisuje skript na GitHubu; správce čte
@@ -83,10 +85,23 @@ export async function mockSupabase(page, store = vychoziStore()) {
     if (url.pathname === '/auth/v1/token') {
       const b = req.postDataJSON(), u = ucetPodleEmailu(b.email);
       if (!u || b.password !== HESLO) return json(400, { code: 400, error_code: 'invalid_credentials', msg: 'Invalid login credentials' });
+      store.odhlaseni.delete(u.id);
       return json(200, session(u));
     }
-    if (url.pathname === '/auth/v1/logout') return route.fulfill({ status: 204, headers: CORS });
-    if (url.pathname === '/auth/v1/user') { const u = kdoJe(h); return u ? json(200, session(u).user) : json(401, { msg: 'no user' }); }
+    // Jako produkce: odhlášení zruší sezení na serveru, JWT ale REST bere dál až do vypršení
+    if (url.pathname === '/auth/v1/logout') {
+      if (store.selhani.logout) return json(500, { code: 500, msg: 'výpadek' });
+      const u = kdoJe(h);
+      if (u) store.odhlaseni.add(u.id);
+      return route.fulfill({ status: 204, headers: CORS });
+    }
+    if (url.pathname === '/auth/v1/user') {
+      if (store.selhani.user) return json(503, { code: 503, msg: 'výpadek' });
+      const u = kdoJe(h);
+      if (!u) return json(401, { code: 401, error_code: 'no_authorization', msg: 'This endpoint requires a valid Bearer token' });
+      if (store.odhlaseni.has(u.id)) return json(403, { code: 403, error_code: 'session_not_found', msg: 'Session from session_id claim in JWT does not exist' });
+      return json(200, session(u, obsahJwt(h).session_id).user);
+    }
 
     const u = kdoJe(h);
     const smi = !!u && u !== UCTY.bez;
@@ -137,7 +152,11 @@ export async function mockSupabase(page, store = vychoziStore()) {
 
     const cesta = url.pathname.replace('/rest/v1/', '');
     hlavicky.push(m === 'GET' ? h['accept-profile'] : h['content-profile']);
-    if (!u) return json(401, { code: '42501', message: 'permission denied for schema opravneni' });
+    // anon jako produkce: po migraci 002 má USAGE na schéma, takže zamítá až tabulka / funkce
+    if (!u) {
+      const co = cesta.startsWith('rpc/') ? 'function ' + cesta.slice(4) : 'table ' + cesta;
+      return json(401, { code: '42501', details: null, hint: null, message: 'permission denied for ' + co });
+    }
 
     if (cesta === 'rpc/smi') return json(200, smi);
     if (cesta === 'rpc/je_spravce') return json(200, spravce);

@@ -41,7 +41,7 @@ test('přehled: K vyřízení, odznak, řazení a semafor techniků', async ({ p
   const [r4, g4, b4] = await rgb(technik(page, 'Lukáš Černý').locator('.dot')); expect(g4).toBeGreaterThan(r4); expect(g4).toBeGreaterThan(b4);
   await expect(page.locator('#debug')).toBeVisible();
   await expect(page.locator('#debug')).not.toHaveClass(/chyba/);
-  await expect(page.locator('footer')).toContainText('verze 8');
+  await expect(page.locator('footer')).toContainText('verze 9');
   await bezPreteceni(page);
 });
 

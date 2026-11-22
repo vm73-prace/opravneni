@@ -3,16 +3,16 @@ import { test, expect } from '@playwright/test';
 import { mockSupabase, vychoziStore, UCTY, HESLO } from './supabase-mock.mjs';
 import { zapniDebugPanel } from './pomocne.mjs';
 
-let chyby;
+let chyby, ocekavane;
 test.beforeEach(async ({ page }) => {
   zapniDebugPanel(page);
   await page.clock.setFixedTime(new Date('2026-11-16T10:00:00+01:00'));
-  chyby = [];
+  chyby = []; ocekavane = null;
   page.on('pageerror', (e) => chyby.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error') chyby.push(m.text()); });
 });
 // 400 ze špatného hesla prohlížeč hlásí jako „Failed to load resource“ – to je očekávané
-test.afterEach(() => expect(chyby.filter((c) => !/Failed to load resource.*400/.test(c)), 'chyby JS v konzoli').toEqual([]));
+test.afterEach(() => expect(chyby.filter((c) => !/Failed to load resource.*400/.test(c) && !(ocekavane && ocekavane.test(c))), 'chyby JS v konzoli').toEqual([]));
 
 async function prihlas(page, ucet, heslo = HESLO) {
   await page.locator('#f_email').fill(ucet.email);
@@ -410,4 +410,106 @@ test('AI vyčtení: technik tlačítko nevidí ani v ostrém režimu', async ({ 
   await expect(page.locator('h1')).toHaveText('Nenalezeno');
   await expect(page.locator('#btnAI')).toHaveCount(0);
   expect(store.aiVolani).toHaveLength(0);
+});
+
+// ---------- Přihlášení a odhlášení, když prohlížeč blokuje localStorage ----------
+// zpusob: 'tise' = volání nic neudělá, 'vyjimka' = vyhodí chybu. Platí hned i po každém obnovení stránky.
+async function blokujUloziste(page, metody, zpusob = 'tise') {
+  const blokuj = ({ metody, zpusob }) => metody.forEach((m) => {
+    const puvodni = Storage.prototype[m];
+    Storage.prototype[m] = function () {
+      if (this !== window.localStorage) return puvodni.apply(this, arguments);
+      if (zpusob === 'vyjimka') throw new DOMException('blokováno', 'SecurityError');
+    };
+  });
+  await page.addInitScript(blokuj, { metody, zpusob });
+  if (page.url() !== 'about:blank') await page.evaluate(blokuj, { metody, zpusob });
+}
+const ulozenaSession = (page) => page.evaluate(() => localStorage.getItem('opravneni-auth'));
+async function prihlasenySpravce(page) {
+  const mock = await mockSupabase(page);
+  await page.goto('/');
+  await prihlas(page, UCTY.spravce);
+  await expect(page.locator('#vyrizeni')).toBeVisible();
+  await expect.poll(() => ulozenaSession(page)).toContain('access_token'); // odložený zápis proběhl
+  return mock;
+}
+async function odhlas(page) {
+  await page.goto('/#/nastaveni');
+  await page.getByRole('button', { name: 'Odhlásit' }).click();
+  await expect(page.locator('#f_email')).toBeVisible();
+}
+
+test('mock: anon dostane 401 / 42501 jako produkce', async ({ page }) => {
+  ocekavane = /Failed to load resource.*401/;
+  await mockSupabase(page);
+  await page.goto('/');
+  await expect(page.locator('#f_email')).toBeVisible();
+  const r = await page.evaluate(async () => [await db.rpc('smi'), await db.from('kategorie').select('*')].map((x) => [x.status, x.error.code, x.error.message]));
+  expect(r).toEqual([[401, '42501', 'permission denied for function smi'], [401, '42501', 'permission denied for table kategorie']]);
+});
+
+for (const zpusob of ['tise', 'vyjimka']) {
+  test(`blokovaný zápis localStorage (${zpusob}): po přihlášení se data načtou`, async ({ page }) => {
+    const store = vychoziStore();
+    store.technici.push({ id: 't-k', jmeno: 'Karel Zkušební', email: '', aktivni: true });
+    await blokujUloziste(page, ['setItem'], zpusob);
+    await mockSupabase(page, store);
+    await page.goto('/');
+    await prihlas(page, UCTY.spravce);
+    await expect(page.locator('#seznam a.row[data-technik="Karel Zkušební"]')).toBeVisible();
+    expect(await ulozenaSession(page)).toBeNull(); // blokování opravdu platilo
+  });
+
+  for (const metody of [['removeItem'], ['removeItem', 'setItem']]) {
+    test(`blokované mazání localStorage (${metody.join(' + ')}, ${zpusob}): po odhlášení a obnovení je odhlášený`, async ({ page }) => {
+      ocekavane = /Failed to load resource.*403/; // server odmítne zrušené sezení
+      await prihlasenySpravce(page);
+      await blokujUloziste(page, metody, zpusob);
+      await odhlas(page);
+      await page.reload();
+      await expect(page.locator('#f_email')).toBeVisible();
+      await expect(page.locator('#vyrizeni')).toHaveCount(0);
+    });
+  }
+}
+
+test('blokované mazání localStorage: hned po odhlášení getSession nic nevrací a jde se znovu přihlásit', async ({ page }) => {
+  await prihlasenySpravce(page);
+  await blokujUloziste(page, ['removeItem', 'setItem']);
+  await odhlas(page);
+  expect(await page.evaluate(async () => (await sb.auth.getSession()).data.session)).toBeNull();
+  await prihlas(page, UCTY.spravce);
+  await expect(page.locator('#vyrizeni')).toBeVisible();
+});
+
+test('blokované mazání a výpadek serveru při odhlášení: po obnovení je odhlášený', async ({ page }) => {
+  ocekavane = /Failed to load resource.*500|výpadek/;
+  const { store } = await prihlasenySpravce(page);
+  store.selhani.logout = true;
+  await blokujUloziste(page, ['removeItem']);
+  await odhlas(page);
+  await page.reload();
+  await expect(page.locator('#f_email')).toBeVisible();
+});
+
+test('výpadek ověření sezení při startu nikoho neodhlásí', async ({ page }) => {
+  ocekavane = /Failed to load resource.*503/;
+  const { store } = await prihlasenySpravce(page);
+  store.selhani.user = true;
+  await page.reload();
+  await expect(page.locator('#vyrizeni')).toBeVisible();
+});
+
+test('session se po přihlášení neuloží: česká hláška a zápis v debug panelu, žádný dotaz jako anon', async ({ page }) => {
+  ocekavane = /session se neuložila/;
+  const { hlavicky } = await mockSupabase(page);
+  await page.goto('/?debug=1');
+  await expect(page.locator('#f_email')).toBeVisible();
+  await page.evaluate(() => { authStorage.setItem = () => {}; });
+  await prihlas(page, UCTY.spravce);
+  await expect(page.locator('#chyba')).toContainText('prohlížeč neuložil přihlášení');
+  await expect(page.locator('#dbgLog')).toContainText('session se neuložila');
+  await expect(page.getByRole('button', { name: 'Přihlásit' })).toBeEnabled();
+  expect(hlavicky).toEqual([]);
 });

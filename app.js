@@ -1,5 +1,5 @@
 /* Evidence oprávnění techniků – appka (vanilla JS). Výpočty v calc.js, ukázková data v demo.js. */
-var VERZE = 8;
+var VERZE = 9;
 var Q = new URLSearchParams(location.search);
 var DEBUG = Q.get('debug') === '1';
 var DEMO = Q.get('demo') === '1'; // ?demo=1 = ukázková data v paměti, jinak Supabase
@@ -189,11 +189,19 @@ var api = DEMO ? apiDemo : apiSupabase;
 
 // Úložiště přihlášení: kopie v paměti a zápis do localStorage odložený (Avast AntiTrack blokuje synchronní zápis
 // ze skriptu z CDN); když localStorage nejde, přihlášení platí do zavření stránky.
+// Smazání = null v paměti (ne delete, jinak by getItem spadl zpět na starou session v localStorage).
+// Paměť nepřežije obnovení stránky: co nejde smazat, přepíše se prázdnou hodnotou, a start() ověří sezení na serveru.
 var authPamet = {};
 var authStorage = {
   getItem: function (k) { if (k in authPamet) return authPamet[k]; try { return localStorage.getItem(k); } catch (e) { return null; } },
   setItem: function (k, v) { authPamet[k] = v; setTimeout(function () { try { localStorage.setItem(k, v); } catch (e) { log('auth: localStorage nejde zapsat'); } }, 0); },
-  removeItem: function (k) { delete authPamet[k]; setTimeout(function () { try { localStorage.removeItem(k); } catch (e) { /* bez úložiště */ } }, 0); }
+  removeItem: function (k) {
+    authPamet[k] = null;
+    setTimeout(function () {
+      try { localStorage.removeItem(k); } catch (e) { log('auth: localStorage nejde smazat'); }
+      try { if (localStorage.getItem(k)) localStorage.setItem(k, ''); } catch (e) { log('auth: localStorage nejde přepsat'); }
+    }, 0);
+  }
 };
 function nactiSkript(src) {
   return new Promise(function (res, rej) {
@@ -254,6 +262,14 @@ function start() {
       if (udalost === 'SIGNED_OUT') { uzivatel = null; pristup = null; S = prazdnaData(); render(); }
     });
     return sb.auth.getSession();
+  }).then(function (r) {
+    if (!r.data.session) return r;
+    // Session z localStorage může být po odhlášení (blokované mazání): zrušené sezení getUser() samo odstraní,
+    // při výpadku sítě nebo serveru session zůstane.
+    return sb.auth.getUser().then(function (u) {
+      if (u.error) log('auth: ověření sezení', u.error.message);
+      return sb.auth.getSession();
+    });
   }).then(function (r) {
     uzivatel = r.data.session ? r.data.session.user : null;
     return uzivatel ? nactiData() : null;
@@ -909,8 +925,14 @@ function vPrihlaseni() {
     sb.auth.signInWithPassword({ email: email, password: heslo }).then(function (r) {
       log('přihlášení', r.error ? (r.error.status + ' ' + r.error.message) : 'ok');
       if (r.error) throw new Error(/invalid login|invalid_credentials/i.test(r.error.message + ' ' + r.error.code) ? 'Špatný e-mail nebo heslo.' : prelozChybu(r.error));
-      uzivatel = r.data.user;
-      return nactiData();
+      return sb.auth.getSession().then(function (s) {
+        if (!s.data.session) { // bez session by dotazy šly jako anon (42501 permission denied)
+          logChyba('session se neuložila');
+          throw new Error('prohlížeč neuložil přihlášení. Povol pro tuto stránku ukládání dat (může ho blokovat antivir) a zkus to znovu.');
+        }
+        uzivatel = r.data.user;
+        return nactiData();
+      });
     }).then(function () { location.hash = '#/'; render(); })
       .catch(function (err) { btn.disabled = false; chyba('Přihlášení se nepovedlo: ' + err.message); });
   };

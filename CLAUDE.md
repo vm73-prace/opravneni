@@ -41,7 +41,7 @@ Kurz USD→CZK z ČNB (denní lístek) s datem; starší řádky zůstávají v 
 
 ## Stav projektu: HOTOVO, PROVOZ (od 2026-11-18)
 
-Appka běží na https://vm73-prace.github.io/opravneni/ (verze 8, funkce `opravneni-vycteni` v5), upozornění chodí z GitHub Actions denně. Etapy 0–6 hotové a ověřené naostro (PC i iPhone z plochy, AI vyčtení PDF i fotky). Další práce = samostatné úkoly, každý v novém sezení (kontext z tohoto souboru), náklady do `../opravneni-interni/NAKLADY.md`.
+Appka běží na https://vm73-prace.github.io/opravneni/ (verze 9, funkce `opravneni-vycteni` v5), upozornění chodí z GitHub Actions denně. Etapy 0–6 hotové a ověřené naostro (PC i iPhone z plochy, AI vyčtení PDF i fotky). Další práce = samostatné úkoly, každý v novém sezení (kontext z tohoto souboru), náklady do `../opravneni-interni/NAKLADY.md`.
 
 **Otevřené body:**
 1. **Technici – rozhodnutí 19. 11. (Vladan): bez přihlašovacích účtů, přehled má jen správce.** Technici se do appky nepřihlašují; vybraní technici dostávají jen e-mailová upozornění na svá oprávnění (`technici.email`, skript `upozorneni.py` to už umí). Účty v Auth / `opravneni.uzivatele` pro techniky nezakládat; RLS pro roli technik zůstává (neškodí, připraveno pro případ změny). ZADANI §2 („technik čte svou sekci“) tím pro provoz neplatí.
@@ -66,6 +66,18 @@ Appka běží na https://vm73-prace.github.io/opravneni/ (verze 8, funkce `oprav
 | 5. AI vyčtení (Edge Function `opravneni-vycteni`) | hotovo 2026-11-18 (verze 8, funkce v4 – výběr druhu podle významu, ověřen na skutečném dokladu; v5 vydavatel jen název firmy); fotka z iPhonu ověřena 18. 11. po nasazení |
 | 6. Nasazení (veřejné repo + Pages, ikony, README) | **hotovo 2026-11-18** – https://vm73-prace.github.io/opravneni/ (smoke test, CORS, upozornění, test na PC a iPhonu s fotkou dokladu) |
 
+## Oprava odhlášení (2026-11-22, verze 9)
+
+- **Chyba:** `authStorage.removeItem` mazal klíč z paměti (`delete`), `getItem` pak četl starou session z localStorage → při blokovaném mazání zůstal uživatel po odhlášení přihlášený.
+- **Oprava má tři vrstvy, žádnou neodebírat:**
+  1. smazání = `authPamet[k] = null` (platí jen do obnovení stránky),
+  2. co z localStorage nejde smazat, přepíše se odloženě prázdnou hodnotou (pokryje i výpadek serveru při odhlášení),
+  3. `start()` při nalezené session volá `getUser()`: zrušené sezení (`session_not_found`) supabase-js odstraní, výpadek sítě nebo 5xx nikoho neodhlásí. Pokryje i blokované mazání i zápis zároveň; stojí 1 dotaz do Auth na načtení stránky.
+- **Přihlášení:** po `signInWithPassword` se ověří `getSession()`; bez session „session se neuložila“ do debug panelu a česká hláška, žádný dotaz jako anon.
+- **Důsledek:** `signOut` ruší všechna sezení účtu na serveru, takže po odhlášení na jednom zařízení se druhé odhlásí hned při obnovení stránky (dřív až při obnově tokenu).
+- **Známá mez:** blokované mazání i zápis a zároveň server při odhlášení nedostupný → po obnovení stránky se session vrátí (není kam odhlášení zapsat).
+- **Mock:** anon 401 / 42501 se zněním jako produkce (`permission denied for function …` / `table …`; schéma má od migrace 002 pro anon USAGE), odhlášení ruší sezení (`/user` pak 403 `session_not_found`, REST JWT dál bere).
+
 ## Etapa 1 – prototyp (2026-11-16, verze 3)
 
 - `?demo=1` = data v paměti z `demo.js` (relativně k dnešku, smyšlená jména). Bez parametru přihlášení (etapa 2).
@@ -87,7 +99,7 @@ Appka běží na https://vm73-prace.github.io/opravneni/ (verze 8, funkce `oprav
 - **Přístup účtů mimo repo:** `sql/lokalni/001b_pristup.sql` + `001b_rollback.sql` (v .gitignore). Vladan = správce. Na novém PC soubor chybí – vzor je v hlavičce souboru a v `tests/sql.test.mjs` (smyšlené UUID; test použije skutečný soubor, když existuje). Ukázkoví technici do DB nejdou.
 - **Spuštěno přes konektor:** `opravneni_001_init` (obsah `sql/001_init.sql` bez begin/commit – konektor obaluje transakcí sám) a `opravneni_001b_pristup`; pak `notify pgrst, 'reload schema'`. Ověřeno: 9 tabulek s RLS, anon nic, `tajne` nečitelná, 5 funkcí bez PUBLIC/anon, 14 politik ve schématu, storage politiky, bucket soukromý 10 MB, katalog 4 + 13.
 - **Exposed schemas** obsahuje `opravneni` (anon dostane 401 `permission denied for schema opravneni`). Ověření s přihlášením: `scripts/overeni-api.ps1` (heslo zadává Vladan, Claude hesla nezadává).
-- **Appka:** bez `?demo=1` běží proti Supabase (supabase-js 2.118.0 z jsDelivr, `sb.schema('opravneni')`, vlastní `storage` + `storageKey: 'opravneni-auth'` s kopií v paměti a odloženým zápisem – některé antiviry blokují synchronní zápis localStorage ze skriptu z CDN). Po přihlášení `rpc smi` → bez přístupu hláška; `je_spravce` / `muj_technik` určí roli; správce navíc `nastaveni` a `uzivatele`, technik `rpc nastaveni_vypocet`. Ukládání `apiSupabase` (stejné metody jako `apiDemo`), chyby DB přeložené (`prelozChybu`).
+- **Appka:** bez `?demo=1` běží proti Supabase (supabase-js 2.118.0 z jsDelivr, `sb.schema('opravneni')`, vlastní `storage` + `storageKey: 'opravneni-auth'` s kopií v paměti a odloženým zápisem – některé antiviry blokují synchronní zápis localStorage ze skriptu z CDN; smazání a start viz „Oprava odhlášení“). Po přihlášení `rpc smi` → bez přístupu hláška; `je_spravce` / `muj_technik` určí roli; správce navíc `nastaveni` a `uzivatele`, technik `rpc nastaveni_vypocet`. Ukládání `apiSupabase` (stejné metody jako `apiDemo`), chyby DB přeložené (`prelozChybu`).
 - **Propojení účtu s technikem** zatím SQL podle vzoru `sql/lokalni/001b_pristup.sql` (účet musí existovat v Auth a mít `opravneni` v `profily.aplikace`); v appce jen „Propojený účet: ano/ne“.
 - **Testy ostrého režimu:** `tests/supabase.spec.mjs` + `tests/supabase-mock.mjs` (napodobené Supabase s pravidly jako RLS: správce, technik, účet bez přístupu; kontroluje i Accept/Content-Profile = opravneni).
 
