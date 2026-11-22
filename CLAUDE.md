@@ -41,7 +41,7 @@ Kurz USD→CZK z ČNB (denní lístek) s datem; starší řádky zůstávají v 
 
 ## Stav projektu: HOTOVO, PROVOZ (od 2026-11-18)
 
-Appka běží na https://vm73-prace.github.io/opravneni/ (verze 9, funkce `opravneni-vycteni` v5), upozornění chodí z GitHub Actions denně. Etapy 0–6 hotové a ověřené naostro (PC i iPhone z plochy, AI vyčtení PDF i fotky). Další práce = samostatné úkoly, každý v novém sezení (kontext z tohoto souboru), náklady do `../opravneni-interni/NAKLADY.md`.
+Appka běží na https://vm73-prace.github.io/opravneni/ (verze 10, funkce `opravneni-vycteni` v5), upozornění chodí z GitHub Actions denně. Etapy 0–6 hotové a ověřené naostro (PC i iPhone z plochy, AI vyčtení PDF i fotky). Další práce = samostatné úkoly, každý v novém sezení (kontext z tohoto souboru), náklady do `../opravneni-interni/NAKLADY.md`.
 
 **Otevřené body:**
 1. **Technici – rozhodnutí 19. 11. (Vladan): bez přihlašovacích účtů, přehled má jen správce.** Technici se do appky nepřihlašují; vybraní technici dostávají jen e-mailová upozornění na svá oprávnění (`technici.email`, skript `upozorneni.py` to už umí). Účty v Auth / `opravneni.uzivatele` pro techniky nezakládat; RLS pro roli technik zůstává (neškodí, připraveno pro případ změny). ZADANI §2 („technik čte svou sekci“) tím pro provoz neplatí.
@@ -74,10 +74,31 @@ Appka běží na https://vm73-prace.github.io/opravneni/ (verze 9, funkce `oprav
   2. co z localStorage nejde smazat, přepíše se odloženě prázdnou hodnotou (pokryje i výpadek serveru při odhlášení),
   3. `start()` při nalezené session volá `getUser()`: zrušené sezení (`session_not_found`) supabase-js odstraní, výpadek sítě nebo 5xx nikoho neodhlásí. Pokryje i blokované mazání i zápis zároveň; stojí 1 dotaz do Auth na načtení stránky.
 - **Přihlášení:** po `signInWithPassword` se ověří `getSession()`; bez session „session se neuložila“ do debug panelu a česká hláška, žádný dotaz jako anon.
-- **Důsledek:** `signOut` ruší všechna sezení účtu na serveru, takže po odhlášení na jednom zařízení se druhé odhlásí hned při obnovení stránky (dřív až při obnově tokenu).
-- **Známá mez:** blokované mazání i zápis a zároveň server při odhlášení nedostupný → po obnovení stránky se session vrátí (není kam odhlášení zapsat).
+- ~~**Důsledek:** `signOut` ruší všechna sezení účtu~~ – od verze 10 neplatí (odhlášení jen tohoto zařízení), meze viz verze 10.
 - **Mock:** anon 401 / 42501 se zněním jako produkce (`permission denied for function …` / `table …`; schéma má od migrace 002 pro anon USAGE), odhlášení ruší sezení (`/user` pak 403 `session_not_found`, REST JWT dál bere).
 - **Nasazeno a ověřeno 22. 11.:** Pages = commit, `opravneni-v9`, smoke test 28/28, odhlášení na nasazeném kódu s napodobeným Supabase (bez blokování, blokovaný zápis, mazání, obojí). Testy: Node 62, Playwright 288 + 288 s `?debug=1`, Python 36. **Ruční zkouška skutečným účtem na PC s blokujícím antivirem (přihlásit → odhlásit → obnovit stránku): prošla 22. 11. (Vladan).**
+
+## Odhlášení jen tohoto zařízení a vždy úspěšné (2026-11-22, verze 10)
+
+Převzato z druhé pracovní appky v organizaci (stejné řešení), doplněno Odhlásit na obrazovce výpadku a ochrana proti opožděným odpovědím. Vše v `app.js` u `authStorage`; **nic neodebírat** (každá část má svůj test v `tests/odhlaseni.spec.mjs`).
+1. **Odhlásit = `signOut({ scope: 'local' })`** – ostatní zařízení zůstanou přihlášená (ověřeno i obnovou tokenu na druhém zařízení).
+2. **Limit 5 s** (`ODHLASENI_LIMIT_MS`): supabase-js při výpadku obnovuje vypršený token až 30 s a bez odpovědi serveru čeká bez konce. Při chybě nebo po limitu appka smaže session sama (`authStorage.removeItem` = paměť `null` + localStorage, co nejde smazat, přepíše `''`), ukáže přihlášení a zaloguje „odhlášení offline – session smazána jen lokálně (důvod)“. Bez načtené knihovny totéž hned.
+3. **Nové přihlášení čeká** na nedokončený `signOut` (`odhlasovani`) i na ověření sezení ze startu (`overovani`), hláška „Dokončuji předchozí odhlášení…“. Jinak by opožděný `signOut` nebo opožděné `session_not_found` nové přihlášení smazaly.
+4. **Událost `storage`:** smazání / vyprázdnění `opravneni-auth` v jiné záložce odhlásí i tuto (paměť `null`). K tomu dvě pojistky v `authStorage`: odložený zápis se neprovede, když se mezitím hodnota v paměti změnila (odhlášení), a `removeItem` nic nedělá, když už je v paměti `null` (opožděné odhlášení jedné záložky tak nesmaže nové přihlášení z druhé).
+5. **Start:** `getUser()` s `bad_jwt` / `user_not_found` / `user_banned` → session zahozena jen lokálně (žádný požadavek na server); `session_not_found` zahodí supabase-js. Když `getSession` vrátí chybu a session v úložišti zůstala (vypršený token + výpadek, i 500), nebo selže načtení dat či knihovny, nebo start do **35 s** (`START_LIMIT_MS`) neskončí, ukáže se hláška se **Zkusit znovu** a **Odhlásit** (jen když je v úložišti session). Hláška vydrží i změnu adresy (`startStav` v `render`); opožděná odpověď ji nahradí appkou.
+6. **Relace:** každé odhlášení zvýší `relace`; opožděný start, `nactiData` a přihlášení ze starší relace se zahodí (žádná cizí data ani překreslení po odhlášení).
+- **Zbývající meze (ověřené čtením kódu a mockem):**
+  - blokované mazání i zápis **a zároveň** nedostupný server → po F5 hláška výpadku se session a po obnově serveru zase přihlášený (odhlášení není kam zapsat ani předat jiné záložce; Odhlásit na hlášce pomůže jen do F5),
+  - F5 nebo zavření appky během „Odhlašuji…“ (nejvýš 5 s) → zůstane přihlášený,
+  - opožděné odhlášení jedné záložky (server odpoví po limitu) pošle ostatním záložkám SIGNED_OUT: ukážou přihlášení, ale session nesmažou, po F5 jsou přihlášené,
+  - 429 při obnově vypršeného tokenu: supabase-js session smaže sám (nejde o výpadek) → přihlašovací formulář,
+  - start delší než 35 s i bez výpadku (velmi pomalá síť) → dočasně hláška výpadku, po načtení appka,
+  - úplně bez internetu po F5 → hláška o nenačtené knihovně (shell z cache service workeru); Odhlásit tam smaže session lokálně, přihlásit jde až po obnovení stránky online.
+- **Důsledky:** odhlášení offline nechá sezení na serveru platné (v zařízení už není). Odhlásit neslouží k odhlášení ztraceného zařízení – to jde jen na straně Supabase (Auth → uživatel → zrušit sezení). Odhlášení s výchozím (globálním) rozsahem téhož účtu jinde dál ruší i sezení této appky.
+- **Mock:** sezení podle `session_id` (`store.sezeni`), `logout` respektuje `scope` (bez parametru = global, záznam v `store.rozsahy`), obnova tokenu přes `refresh_token` sezení, poruchy `store.selhani[token|logout|user|rest]` = HTTP status, `'sit'` nebo Promise (odpověď až po splnění), `store.neplatna` = kód odmítnutí JWT. Stejný store ve dvou kontextech = dvě zařízení.
+- **Testy:** `tests/odhlaseni.spec.mjs` (36 testů × 6 profilů, paralelně, bez pevného „dnes“ – opakování obnovy měří skutečný čas): (a) dvě zařízení, (b) vypršený token + 503 / síť / 429 / bez odpovědi, dvě záložky (i s blokovaným mazáním), (c) totéž s blokovaným mazáním (tiše i výjimkou), (d) bad_jwt / user_not_found / user_banned (i s blokovaným mazáním), (e) obrazovka výpadku (500, síť, bez odpovědi s `page.clock`, výpadek dat, nenačtená knihovna), opožděné odpovědi a přihlášení. **Proti v9 selhalo všech 36** (profil w390), proti opravě prošlo. Celá sada: Node 62, Playwright 504 + 504 s `?debug=1`, Python 36.
+- **Nasazeno a ověřeno 22. 11.:** Pages build = commit, `app.js` a `sw.js` shodné s commitem, `var VERZE = 10`, cache `opravneni-v10`, smoke test 28/28 (Chrome + emulace iPhone 13, bez přihlášení).
+- **Neověřeno (dělá Vladan):** skutečný účet – přihlásit PC i iPhone → na PC Odhlásit → iPhone po znovuotevření zůstává přihlášený, PC po F5 ne; totéž na PC s blokujícím antivirem; WebKit na iPhonu.
 
 ## Etapa 1 – prototyp (2026-11-16, verze 3)
 
