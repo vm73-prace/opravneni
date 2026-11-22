@@ -486,7 +486,7 @@ test('blokované mazání localStorage: hned po odhlášení getSession nic nevr
 test('blokované mazání a výpadek serveru při odhlášení: po obnovení je odhlášený', async ({ page }) => {
   ocekavane = /Failed to load resource.*500|výpadek/;
   const { store } = await prihlasenySpravce(page);
-  store.selhani.logout = true;
+  store.selhani.logout = 500;
   await blokujUloziste(page, ['removeItem']);
   await odhlas(page);
   await page.reload();
@@ -496,7 +496,7 @@ test('blokované mazání a výpadek serveru při odhlášení: po obnovení je 
 test('výpadek ověření sezení při startu nikoho neodhlásí', async ({ page }) => {
   ocekavane = /Failed to load resource.*503/;
   const { store } = await prihlasenySpravce(page);
-  store.selhani.user = true;
+  store.selhani.user = 503;
   await page.reload();
   await expect(page.locator('#vyrizeni')).toBeVisible();
 });

@@ -20,7 +20,7 @@ function session(u, sid = randomUUID()) {
   const now = Math.floor(Date.now() / 1000);
   const user = { id: u.id, email: u.email, aud: 'authenticated', role: 'authenticated', app_metadata: {}, user_metadata: {}, created_at: new Date().toISOString() };
   const token = b64({ alg: 'HS256', typ: 'JWT' }) + '.' + b64({ sub: u.id, email: u.email, role: 'authenticated', aud: 'authenticated', exp: now + 3600, iat: now, session_id: sid }) + '.podpis';
-  return { access_token: token, token_type: 'bearer', expires_in: 3600, expires_at: now + 3600, refresh_token: 'obnova-' + u.id, user };
+  return { access_token: token, token_type: 'bearer', expires_in: 3600, expires_at: now + 3600, refresh_token: 'obnova.' + u.id + '.' + sid, user };
 }
 const obsahJwt = (h) => {
   const t = (h.authorization || '').replace('Bearer ', '').split('.')[1];
@@ -41,8 +41,12 @@ export function vychoziStore() {
     ],
     technici: [], opravneni: [], doklady: [],
     soubory: {}, // Storage bucket opravneni-doklady: cesta -> { body: Buffer, typ }
-    selhani: {}, // { doklady: true } = zápis řádku dokladu selže (test úklidu); { logout / user: true } = výpadek Auth
-    odhlaseni: new Set(), // účty odhlášené na serveru (signOut ruší všechna sezení účtu)
+    // { doklady: true } = zápis řádku dokladu selže (test úklidu); { logout / user / token / rest }: HTTP status,
+    // 'sit' = bez spojení, Promise = odpověď až po jejím splnění
+    selhani: {},
+    sezeni: new Map(), // platná sezení: session_id -> id účtu
+    rozsahy: [], // rozsah (scope) každého odhlášení
+    neplatna: null, // kód, kterým Auth odmítne JWT při ověření (bad_jwt, user_not_found, user_banned)
     nastaveni: [{ id: 1, predstih_dni: 90, prijemci: '', vyrobci: 'Mandík, Systemair, Elektrodesign' }],
     uzivatele: [{ user_id: UCTY.spravce.id, role: 'spravce', technik_id: null }],
     upozorneni_log: [], // zapisuje skript na GitHubu; správce čte
@@ -73,6 +77,7 @@ function rozbalUpload(buf, typ) {
   return { body: buf, typ };
 }
 
+// Stejný store ve dvou kontextech = dvě zařízení proti témuž serveru
 export async function mockSupabase(page, store = vychoziStore()) {
   const hlavicky = []; // Accept-Profile / Content-Profile všech REST dotazů
   const ctx = page.context();
@@ -82,24 +87,37 @@ export async function mockSupabase(page, store = vychoziStore()) {
     const json = (status, body) => route.fulfill({ status, headers: { ...CORS, 'content-type': 'application/json' }, body: body === undefined ? '' : JSON.stringify(body) });
     if (m === 'OPTIONS') return route.fulfill({ status: 204, headers: CORS });
 
+    const sluzba = url.pathname.startsWith('/rest/v1/') ? 'rest' : url.pathname.replace('/auth/v1/', '');
+    const porucha = store.selhani[sluzba];
+    if (porucha === 'sit') return route.abort('connectionfailed');
+    if (porucha instanceof Promise) await porucha;
+    else if (porucha) return json(porucha, { code: porucha, error_code: porucha === 429 ? 'over_request_rate_limit' : 'unexpected_failure', msg: 'výpadek', message: 'výpadek' });
+
     if (url.pathname === '/auth/v1/token') {
-      const b = req.postDataJSON(), u = ucetPodleEmailu(b.email);
+      const b = req.postDataJSON();
+      if (url.searchParams.get('grant_type') === 'refresh_token') {
+        const [, id, sid] = String(b.refresh_token).split('.');
+        if (store.sezeni.get(sid) !== id) return json(400, { code: 400, error_code: 'refresh_token_not_found', msg: 'Invalid Refresh Token: Refresh Token Not Found' });
+        return json(200, session(ucetPodleId(id), sid));
+      }
+      const u = ucetPodleEmailu(b.email);
       if (!u || b.password !== HESLO) return json(400, { code: 400, error_code: 'invalid_credentials', msg: 'Invalid login credentials' });
-      store.odhlaseni.delete(u.id);
-      return json(200, session(u));
+      const sid = randomUUID();
+      store.sezeni.set(sid, u.id);
+      return json(200, session(u, sid));
     }
     // Jako produkce: odhlášení zruší sezení na serveru, JWT ale REST bere dál až do vypršení
     if (url.pathname === '/auth/v1/logout') {
-      if (store.selhani.logout) return json(500, { code: 500, msg: 'výpadek' });
-      const u = kdoJe(h);
-      if (u) store.odhlaseni.add(u.id);
+      const u = kdoJe(h), rozsah = url.searchParams.get('scope') || 'global'; // bez parametru ruší všechna sezení účtu
+      store.rozsahy.push(rozsah);
+      for (const [sid, id] of store.sezeni) if (u && id === u.id && (rozsah === 'global' || sid === obsahJwt(h).session_id)) store.sezeni.delete(sid);
       return route.fulfill({ status: 204, headers: CORS });
     }
     if (url.pathname === '/auth/v1/user') {
-      if (store.selhani.user) return json(503, { code: 503, msg: 'výpadek' });
+      if (store.neplatna) return json(403, { code: 403, error_code: store.neplatna, msg: 'odmítnuto: ' + store.neplatna });
       const u = kdoJe(h);
       if (!u) return json(401, { code: 401, error_code: 'no_authorization', msg: 'This endpoint requires a valid Bearer token' });
-      if (store.odhlaseni.has(u.id)) return json(403, { code: 403, error_code: 'session_not_found', msg: 'Session from session_id claim in JWT does not exist' });
+      if (!store.sezeni.has(obsahJwt(h).session_id)) return json(403, { code: 403, error_code: 'session_not_found', msg: 'Session from session_id claim in JWT does not exist' });
       return json(200, session(u, obsahJwt(h).session_id).user);
     }
 

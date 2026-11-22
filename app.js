@@ -1,5 +1,5 @@
 /* Evidence oprávnění techniků – appka (vanilla JS). Výpočty v calc.js, ukázková data v demo.js. */
-var VERZE = 9;
+var VERZE = 10;
 var Q = new URLSearchParams(location.search);
 var DEBUG = Q.get('debug') === '1';
 var DEMO = Q.get('demo') === '1'; // ?demo=1 = ukázková data v paměti, jinak Supabase
@@ -191,11 +191,20 @@ var api = DEMO ? apiDemo : apiSupabase;
 // ze skriptu z CDN); když localStorage nejde, přihlášení platí do zavření stránky.
 // Smazání = null v paměti (ne delete, jinak by getItem spadl zpět na starou session v localStorage).
 // Paměť nepřežije obnovení stránky: co nejde smazat, přepíše se prázdnou hodnotou, a start() ověří sezení na serveru.
+var AUTH_KLIC = 'opravneni-auth';
 var authPamet = {};
 var authStorage = {
-  getItem: function (k) { if (k in authPamet) return authPamet[k]; try { return localStorage.getItem(k); } catch (e) { return null; } },
-  setItem: function (k, v) { authPamet[k] = v; setTimeout(function () { try { localStorage.setItem(k, v); } catch (e) { log('auth: localStorage nejde zapsat'); } }, 0); },
+  getItem: function (k) { if (k in authPamet) return authPamet[k]; try { return localStorage.getItem(k) || null; } catch (e) { return null; } },
+  setItem: function (k, v) {
+    authPamet[k] = v;
+    setTimeout(function () { // mezitím odhlášeno (i v jiné záložce) → nezapisovat
+      if (authPamet[k] !== v) return;
+      try { localStorage.setItem(k, v); } catch (e) { log('auth: localStorage nejde zapsat'); }
+    }, 0);
+  },
   removeItem: function (k) {
+    // Už smazané v této záložce (nebo v jiné, viz událost storage): opožděné odhlášení nesmí smazat nové přihlášení z jiné záložky
+    if (authPamet[k] === null) return;
     authPamet[k] = null;
     setTimeout(function () {
       try { localStorage.removeItem(k); } catch (e) { log('auth: localStorage nejde smazat'); }
@@ -203,6 +212,43 @@ var authStorage = {
     }, 0);
   }
 };
+// Odhlášení jen tohoto zařízení (scope local). Povede se vždy: signOut při vypršeném tokenu a výpadku vrací chybu
+// bez smazání session (až po 30 s opakování) a bez odpovědi serveru neskončí vůbec – proto při chybě nebo po limitu
+// smaže session appka sama.
+var ODHLASENI_LIMIT_MS = 5000;
+var odhlasovani = null; // běžící signOut: nové přihlášení na něj čeká, jinak by mu opožděný signOut session smazal
+var overovani = null; // běžící ověření sezení ze startu: jeho opožděné odmítnutí by smazalo nové přihlášení
+var relace = 0; // zvýší se při každém odhlášení; opožděné načítání ze starší relace se zahodí
+var startStav = null; // null = start hotový, 'nacitam', jinak text hlášky výpadku (obrazovka se Zkusit znovu)
+function odhlasen() {
+  if (!uzivatel && !startStav) return; // opožděná událost nesmí překreslit rozepsané přihlášení
+  relace++; uzivatel = null; pristup = null; startStav = null; S = prazdnaData();
+  history.replaceState(null, '', location.pathname + location.search);
+  render();
+}
+function odhlasit() {
+  var smazano = false;
+  function jenLokalne(duvod) {
+    if (smazano) return;
+    smazano = true;
+    log('odhlášení offline – session smazána jen lokálně', '(' + duvod + ')');
+    authStorage.removeItem(AUTH_KLIC);
+    odhlasen();
+  }
+  if (!sb) return jenLokalne('knihovna není načtená');
+  var limit = setTimeout(function () { jenLokalne('server neodpověděl do ' + ODHLASENI_LIMIT_MS / 1000 + ' s'); }, ODHLASENI_LIMIT_MS);
+  var beh = odhlasovani = sb.auth.signOut({ scope: 'local' }).catch(function (e) { return { error: e }; }).then(function (r) {
+    clearTimeout(limit);
+    if (r.error) jenLokalne((r.error.status || '') + ' ' + r.error.message); else { smazano = true; odhlasen(); }
+    if (odhlasovani === beh) odhlasovani = null;
+  });
+}
+// Odhlášení v jiné záložce: kopie v paměti této záložky by při obnově tokenu session zapsala zpět.
+window.addEventListener('storage', function (e) {
+  if (e.key !== AUTH_KLIC || e.newValue) return; // jen smazání nebo přepsání prázdnou hodnotou
+  authPamet[AUTH_KLIC] = null;
+  odhlasen();
+});
 function nactiSkript(src) {
   return new Promise(function (res, rej) {
     var el = document.createElement('script'); el.src = src; el.onload = res;
@@ -212,7 +258,9 @@ function nactiSkript(src) {
 }
 // Po přihlášení: přístup (smi), role, pak data. Technikovi RLS vrátí jen jeho řádky.
 function nactiData() {
+  var moje = relace;
   return q('rpc smi', db.rpc('smi')).then(function (smi) {
+    if (moje !== relace) return;
     pristup = smi === true;
     if (!pristup) return;
     return Promise.all([q('rpc je_spravce', db.rpc('je_spravce')), q('rpc muj_technik', db.rpc('muj_technik'))]).then(function (r) {
@@ -231,6 +279,7 @@ function nactiData() {
         SPRAVCE ? nactiTestLog() : Promise.resolve([])
       ]);
     }).then(function (d) {
+      if (moje !== relace) return;
       S = { kategorie: d[0], druhy: d[1], technici: d[2], opravneni: d[3], doklady: d[4], nastaveni: d[5] || {}, uzivatele: d[6], testLog: d[7] };
       // propojený účet technika (jen pro zobrazení v Nastavení)
       S.technici.forEach(function (t) { t.ucet = S.uzivatele.some(function (u) { return u.technik_id === t.id; }) ? 'propojen' : null; });
@@ -251,33 +300,58 @@ function podepisDoklady() {
 function nactiTestLog() {
   return q('select upozorneni_log (test)', db.from('upozorneni_log').select('cas,typ,prijemce,stav,chyba').eq('typ', 'test').order('cas', { ascending: false }).limit(20));
 }
+// Ověření sezení na serveru: tyto kódy = session neplatí, zahodí se jen na tomto zařízení (session_not_found zahodí supabase-js sám).
+// Jiná chyba (síť, 5xx, 429) session nechá.
+var AUTH_NEPLATNE = ['bad_jwt', 'user_not_found', 'user_banned'];
+// Start bez odpovědi serveru (supabase-js při ní čeká bez konce): po limitu hláška výpadku s Odhlásit, odpověď ji pak nahradí
+var START_LIMIT_MS = 35000;
+var VYPADEK_AUTH = 'Server přihlášení není dostupný. Přihlášení zůstává uložené, zkus to za chvíli znovu.';
 function start() {
   if (DEMO) { pripravDemoSoubory(); nastavKat(Q.has('kat') ? Q.get('kat') : aktKat()); return render(); }
-  app.innerHTML = '<main><h1>Oprávnění</h1><div class="empty">Načítám…</div></main>';
+  var moje = relace, hotovo = false;
+  startStav = 'nacitam'; render();
+  setTimeout(function () { if (!hotovo && moje === relace) { startStav = VYPADEK_AUTH; render(); } }, START_LIMIT_MS);
   nactiSkript(SUPABASE_JS).then(function () {
-    sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { storage: authStorage, storageKey: 'opravneni-auth', persistSession: true, autoRefreshToken: true } });
+    sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { storage: authStorage, storageKey: AUTH_KLIC, persistSession: true, autoRefreshToken: true } });
     db = sb.schema(SCHEMA);
     sb.auth.onAuthStateChange(function (udalost) {
       log('auth', udalost);
-      if (udalost === 'SIGNED_OUT') { uzivatel = null; pristup = null; S = prazdnaData(); render(); }
+      if (udalost === 'SIGNED_OUT') odhlasen();
     });
     return sb.auth.getSession();
   }).then(function (r) {
-    if (!r.data.session) return r;
-    // Session z localStorage může být po odhlášení (blokované mazání): zrušené sezení getUser() samo odstraní,
-    // při výpadku sítě nebo serveru session zůstane.
-    return sb.auth.getUser().then(function (u) {
-      if (u.error) log('auth: ověření sezení', u.error.message);
-      return sb.auth.getSession();
-    });
+    if (moje !== relace || !r.data.session) return r;
+    // Session z localStorage může být po odhlášení (blokované mazání) – ověří se na serveru.
+    overovani = sb.auth.getUser().then(function (u) {
+      if (moje !== relace || !u.error) return;
+      log('auth: ověření sezení', (u.error.code || u.error.status || '') + ' ' + u.error.message);
+      if (AUTH_NEPLATNE.indexOf(u.error.code) >= 0) { authStorage.removeItem(AUTH_KLIC); odhlasen(); }
+    }).catch(function (e) { log('auth: ověření sezení', e.message); });
+    return overovani.then(function () { overovani = null; return sb.auth.getSession(); });
   }).then(function (r) {
+    if (moje !== relace) return;
+    // Vypršený token a výpadek: session v úložišti zůstává, přihlašovací formulář by vypadal jako odhlášení
+    if (!r.data.session && r.error && authStorage.getItem(AUTH_KLIC)) throw new Error(VYPADEK_AUTH);
     uzivatel = r.data.session ? r.data.session.user : null;
     return uzivatel ? nactiData() : null;
-  }).then(function () { nastavKat(Q.has('kat') ? Q.get('kat') : aktKat()); render(); }).catch(function (e) {
+  }).then(function () {
+    hotovo = true;
+    if (moje !== relace) return;
+    startStav = null;
+    nastavKat(Q.has('kat') ? Q.get('kat') : aktKat()); render();
+  }).catch(function (e) {
+    hotovo = true;
     logChyba(e.message);
-    app.innerHTML = '<main><h1>Oprávnění</h1><div class="err" role="alert">' + h(e.message) + '</div>' +
-      '<button class="btn primary" style="width:100%" onclick="location.reload()">Zkusit znovu</button>' + paticka() + '</main>';
+    if (moje !== relace) return;
+    startStav = e.message; render();
   });
+}
+// Načítání a hláška výpadku při startu. Odhlásit jen když je co odhlásit (session v úložišti).
+function vStart() {
+  if (startStav === 'nacitam') { app.innerHTML = '<main><h1>Oprávnění</h1><div class="empty">Načítám…</div></main>'; return; }
+  app.innerHTML = '<main><h1>Oprávnění</h1><div class="err" role="alert">' + h(startStav) + '</div>' +
+    '<button class="btn primary" style="width:100%" onclick="location.reload()">Zkusit znovu</button>' +
+    (authStorage.getItem(AUTH_KLIC) ? ODHLASIT : '') + paticka() + '</main>';
 }
 
 function pripravDemoSoubory() {
@@ -921,8 +995,15 @@ function vPrihlaseni() {
     e.preventDefault();
     var f = new FormData(e.target), email = f.get('email').trim(), heslo = f.get('heslo');
     if (!email || !heslo) return chyba('Vyplň e-mail a heslo.');
+    if (!sb) return chyba('Knihovna přihlášení se nenačetla – obnov stránku, až budeš online.');
     var btn = e.target.querySelector('button'); btn.disabled = true;
-    sb.auth.signInWithPassword({ email: email, password: heslo }).then(function (r) {
+    var predchozi = odhlasovani || overovani;
+    chyba(predchozi ? 'Dokončuji předchozí odhlášení… Kdyby to trvalo déle než půl minuty, obnov stránku.' : '');
+    var moje;
+    Promise.all([odhlasovani, overovani]).then(function () {
+      moje = relace;
+      return sb.auth.signInWithPassword({ email: email, password: heslo });
+    }).then(function (r) {
       log('přihlášení', r.error ? (r.error.status + ' ' + r.error.message) : 'ok');
       if (r.error) throw new Error(/invalid login|invalid_credentials/i.test(r.error.message + ' ' + r.error.code) ? 'Špatný e-mail nebo heslo.' : prelozChybu(r.error));
       return sb.auth.getSession().then(function (s) {
@@ -930,10 +1011,11 @@ function vPrihlaseni() {
           logChyba('session se neuložila');
           throw new Error('prohlížeč neuložil přihlášení. Povol pro tuto stránku ukládání dat (může ho blokovat antivir) a zkus to znovu.');
         }
+        if (moje !== relace) throw new Error('mezitím proběhlo odhlášení, přihlas se znovu.');
         uzivatel = r.data.user;
         return nactiData();
       });
-    }).then(function () { location.hash = '#/'; render(); })
+    }).then(function () { if (moje === relace) { location.hash = '#/'; render(); } })
       .catch(function (err) { btn.disabled = false; chyba('Přihlášení se nepovedlo: ' + err.message); });
   };
 }
@@ -958,7 +1040,7 @@ var AKCE = {
   vycistAI: function (b) { if (SPRAVCE && formAI) formAI.vycist(b); },
   prevzitAI: function (b) { if (formAI) formAI.prevzit(b.dataset.pole); },
   prevzitVseAI: function () { if (formAI) formAI.prevzitVse(); },
-  odhlasit: function () { sb.auth.signOut().then(function (r) { if (r.error) logChyba(r.error.message); history.replaceState(null, '', location.pathname + location.search); }); }
+  odhlasit: function (b) { if (odhlasovani) return; b.disabled = true; b.textContent = 'Odhlašuji…'; odhlasit(); }
 };
 document.addEventListener('click', function (e) {
   var b = e.target.closest('[data-act]');
@@ -981,7 +1063,8 @@ function render() {
   var cesta = location.hash.replace(/^#\/?/, '').split('#')[0].split('?')[0].split('/');
   log('route', cesta.join('/') || 'prehled');
   try {
-    if (!DEMO && !uzivatel) vPrihlaseni();
+    if (!DEMO && startStav) vStart();
+    else if (!DEMO && !uzivatel) vPrihlaseni();
     else if (!DEMO && !pristup) vBezPristupu();
     else if (cesta[0] === 't' && cesta[2] === 'nove') vFormZaznam(null, cesta[1]);
     else if (cesta[0] === 't') vTechnik(cesta[1]);

@@ -1,6 +1,6 @@
 // Cachuje jen shell appky. Data (Supabase) a PDF/fotky se necachují.
 // Verzi zvyšuj spolu s VERZE v app.js.
-var CACHE = 'opravneni-v9';
+var CACHE = 'opravneni-v10';
 var SHELL = ['./', 'index.html', 'app.css', 'app.js', 'calc.js', 'demo.js', 'manifest.json',
   'icon-192.png', 'icon-512.png', 'apple-touch-icon.png', 'favicon-32.png'];
 
